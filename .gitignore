@@ -1,7 +1,6 @@
 # Custom
-data/
-models/
-logs/
+.hf_cache/
+.results/
 .idea/
 
 # Byte-compiled / optimized / DLL files
@@ -39,7 +38,7 @@ MANIFEST
 *.manifest
 *.spec
 
-# Installer logs
+# Installer .logs
 pip-log.txt
 pip-delete-this-directory.txt
 
