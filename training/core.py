@@ -1,75 +1,88 @@
+import os
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Dict, List
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 import torch
 from datasets import DatasetDict, Dataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase, PreTrainedModel, Trainer, TrainingArguments, EarlyStoppingCallback, \
     DataCollator
+from transformers.trainer_utils import TrainOutput
 
 from models.core import ModelFactory
 from tasks.core import Task
-from tasks.metrics import conll_converter, SeqEvalComputer, MetricHolder
+from tasks.metrics import MetricHolder
 from training import CHECKPOINTS_PATH, LOGS_PATH, OUTPUTS_PATH
 from utils.data_utils import prepare_test_dsd, shuffle_ds, prepare_dsd
 from utils.gpu_utils import cleanup
 from utils.seed_utils import SEED
 
 
-@dataclass
+@dataclass(frozen=True)
 class TrainConfig:
-    do_test_run: bool
-    do_train: bool
-    # run_name: str  # TODO use this as identifier / add model_name additionally ?
-    # TODO: add num_runs param
+    do_train: bool = True
+    do_test_overfit: bool = False
+    do_test_loop: bool = False
+
+    num_runs: int = 1
+
+    experiment_name: str = '0'
+    track_metric: Optional[str] = None
 
 
+@dataclass(frozen=True)
 class TrainSequencer:
-    @staticmethod
-    def train(model_factory: ModelFactory, task: Task, train_config: TrainConfig):
-        tokenizer = model_factory.load_tokenizer()
+    model_factory: ModelFactory
+    task: Task
+    train_config: TrainConfig
 
-        dataset_dict = task.tokenize(tokenizer)
-        if train_config.do_test_run:
+    @cleanup
+    def train(self):
+        tokenizer = self.model_factory.load_tokenizer()
+
+        dataset_dict = self.task.tokenize(tokenizer)
+        if self.train_config.do_test_overfit or self.train_config.do_test_loop:
             dataset_dict = prepare_test_dsd(dataset_dict)
         else:
             dataset_dict = prepare_dsd(dataset_dict, True)
         dataset_dict = shuffle_ds(dataset_dict)
 
-        label_names = task.loaded_dataset["train"].features["ner_tags"].feature.names
-        model_loader = partial(model_factory.load_token_classification_model, label_names)
-        metric_holder = task.load_metrics_holder(label_names)
+        label_names = self.task.loaded_dataset["train"].features["ner_tags"].feature.names
+        model_loader = partial(self.model_factory.load_token_classification_model, label_names)
+        metric_holder = self.task.load_metrics_holder(label_names)
 
-        TrainSequencer.train_loop(model_loader, task, tokenizer, dataset_dict, train_config, metric_holder)
+        for i in range(self.train_config.num_runs):
+            self.train_loop(model_loader, tokenizer, dataset_dict, metric_holder, i)
 
-    @staticmethod
     @cleanup
-    def train_loop(model_loader: Callable[[], PreTrainedModel],
-                   task: Task, tokenizer: PreTrainedTokenizerBase,
-                   dataset_dict: DatasetDict, train_config: TrainConfig, metric_holder: MetricHolder):
-        data_collator = task.load_data_collator(tokenizer)
+    def train_loop(self, model_loader: Callable[[], PreTrainedModel], tokenizer: PreTrainedTokenizerBase,
+                   dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int):
+        data_collator = self.task.load_data_collator(tokenizer)
         model = model_loader()
 
-        trainer = TrainSequencer.get_trainer(model, tokenizer, data_collator, dataset_dict, train_config)
+        trainer = self.get_trainer(model, tokenizer, data_collator, dataset_dict, metric_holder, run_id)
 
-        if train_config.do_train:
-            trainer.train()
-            model.save_pretrained(CHECKPOINTS_PATH / "BEST")
+        train_output = None
+        if self.train_config.do_train:
+            train_output = trainer.train()
+            model.save_pretrained(self.get_path(CHECKPOINTS_PATH / "BEST", run_id))
 
         if "test" in dataset_dict:
-            evaluations = TrainSequencer.evaluate_dataset(trainer, dataset_dict["test"])
-            metrics = TrainSequencer.compute_metrics(metric_holder, evaluations)
+            evaluations = self.evaluate_dataset(trainer, dataset_dict["test"])
+            metrics = self.compute_metrics(metric_holder, evaluations, train_output)
+            self.save_results(metrics, evaluations, run_id)
 
-    @staticmethod
-    def get_trainer(model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
-                    dataset_dict: DatasetDict, train_config: TrainConfig) -> Trainer:
-        max_steps, eval_steps = TrainSequencer.get_step_counts(train_config)
+    def get_trainer(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
+                    dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int) -> Trainer:
+        max_steps, eval_steps = self.get_step_counts()
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
-            output_dir=CHECKPOINTS_PATH,  # TODO: update path
+            output_dir=self.get_path(CHECKPOINTS_PATH, run_id),  # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
             overwrite_output_dir=True,
             max_steps=max_steps,
 
@@ -80,22 +93,23 @@ class TrainSequencer:
             save_steps=eval_steps,
             save_total_limit=1,
             load_best_model_at_end=True,
-            # metric_for_best_model='ChrF', # TODO: customize
+            metric_for_best_model=self.train_config.track_metric,
 
             logging_steps=eval_steps,
-            logging_dir=LOGS_PATH,  # TODO: update path
+            logging_dir=self.get_path(LOGS_PATH, run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
             log_level='error',
             report_to="tensorboard",
 
             optim="adamw_torch",
-            # TODO: select "reasonable" params
             weight_decay=0.01,
             max_grad_norm=1.00,
             warmup_ratio=0.25,
+            lr_scheduler_type="linear",  # Default
+            learning_rate=5e-5,  # Default
 
             per_device_train_batch_size=1,
             per_device_eval_batch_size=1,
-            gradient_accumulation_steps=4,
+            gradient_accumulation_steps=16,
             gradient_checkpointing=True,
             eval_accumulation_steps=1,
             fp16=True,
@@ -105,7 +119,6 @@ class TrainSequencer:
             remove_unused_columns=True,
             dataloader_pin_memory=False,
 
-            # TODO: evaluate whether results are deterministic with seeding (+ add seed() before call)
             seed=SEED,
             data_seed=SEED,
         )
@@ -117,14 +130,13 @@ class TrainSequencer:
             data_collator=data_collator,
             train_dataset=dataset_dict["train"],
             eval_dataset=dataset_dict["validation"] if "validation" in dataset_dict else None,
-            # compute_metrics=compute_metrics, # TODO: compute metrics & allow customization for each task type
-            callbacks=TrainSequencer.get_callbacks(train_config),
+            compute_metrics=lambda metrics: metric_holder.compute_metrics(metrics.predictions, metrics.label_ids),
+            callbacks=self.get_callbacks(),
         )
 
         return trainer
 
-    @staticmethod
-    def evaluate_dataset(trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
+    def evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
         dataset = DataLoader(
             dataset,
             sampler=trainer._get_eval_sampler(dataset),
@@ -154,32 +166,83 @@ class TrainSequencer:
             "sentences": sentences,
         }
 
-    @staticmethod
-    def compute_metrics(metric_holder: MetricHolder, evaluations: Dict[str, list]):
+    def compute_metrics(self, metric_holder: MetricHolder, evaluations: Dict[str, List],
+                        train_output: Optional[TrainOutput]) -> Dict[str, float]:
         metrics = metric_holder.compute_metrics(evaluations["logits"], evaluations["labels"])
+        metrics["test_loss"] = np.mean(evaluations["loss"])
 
-        df = pd.DataFrame(evaluations)
+        if train_output is not None:
+            global_step, _, train_metrics = train_output
+            metrics["global_step"] = global_step
+            metrics = {**metrics, **train_metrics}
 
-        print(metrics)
+        return metrics
 
-        # os.makedirs(OUTPUTS_PATH / "outputs.tsv", exist_ok=True)
-        # df.to_csv(OUTPUTS_PATH / "outputs.tsv", sep="\t")  # TODO: save under task/model_datasize
+    def save_results(self, metrics: Dict[str, float], evaluations: Dict[str, List], run_id: int):
+        df_metrics = pd.DataFrame({k: [v] for (k, v) in metrics.items()})
+        model_name = self.model_factory.model_hub_name.split("/")[-1]
+        df_metrics["model"] = [model_name]
+        df_metrics["run_id"] = [run_id]
 
-        # TODO: append to task.tsv with [identifier, model_name, dataset_size, metric_1, metric_2] (separate file for each task)
-        # keep identifier for future comparisons (e.g. distilled)
+        # Save evals to:
+        # .results/outputs/{ID}/{task}/{model}/evals_XXX.tsv
+        df_evals = pd.DataFrame(evaluations)
+        df_evals.to_csv(self.get_path(OUTPUTS_PATH, None) / f"evals_{run_id}.tsv", sep="\t")
 
-    @staticmethod
-    def get_step_counts(train_config: TrainConfig):
-        if train_config.do_test_run:
+        # Save metrics to:
+        # .results/outputs/{ID}/{task}/metrics.tsv
+        metrics_path = self.get_path(OUTPUTS_PATH, None, False) / f"metrics.tsv"
+        if os.path.exists(metrics_path):
+            df_metrics_loaded = pd.read_csv(metrics_path, sep="\t")
+
+            updatable_idx = df_metrics_loaded.index[
+                (df_metrics_loaded.model == model_name) & (df_metrics_loaded.run_id == run_id)
+                ]
+
+            if len(updatable_idx) > 0:
+                df_metrics_loaded.iloc[updatable_idx] = df_metrics
+                df_metrics = df_metrics_loaded
+            else:
+                df_metrics = pd.concat([df_metrics_loaded, df_metrics])
+
+        df_metrics.to_csv(metrics_path, sep="\t", index=False)
+
+    def get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True):
+        # Save to .results/logs/{ID}/{task}/{model}/{ID}/
+        experiment_name = self.train_config.experiment_name
+
+        if self.train_config.do_test_overfit:
+            experiment_name = f"{experiment_name}_overfit"
+
+        if self.train_config.do_test_loop:
+            experiment_name = f"{experiment_name}_loop"
+
+        path = base_path \
+               / experiment_name \
+               / self.task.hub_dataset_name.split("/")[-1]
+
+        if use_model:
+            path /= self.model_factory.model_hub_name.split("/")[-1]
+
+        if run_id is not None:
+            path /= str(run_id)
+
+        os.makedirs(path, exist_ok=True)
+
+        return path
+
+    def get_step_counts(self):
+        if self.train_config.do_test_overfit:
             return 250, 50
+        elif self.train_config.do_test_loop:
+            return 1, 1
         else:
             return 2_000, 50
 
-    @staticmethod
-    def get_callbacks(train_config: TrainConfig):
+    def get_callbacks(self):
         callbacks = []
 
-        if not train_config.do_test_run:
+        if not self.train_config.do_test_overfit:
             callbacks.append(EarlyStoppingCallback(3, 0.0))
 
         return callbacks

@@ -49,7 +49,6 @@ def get_tracked_tensors_strs() -> Iterable[str]:
 
 
 def cleanup(func):
-
     def inner(*args, **kwargs):
         results = func(*args, **kwargs)
 
