@@ -6,7 +6,7 @@ from training.core import TrainSequencer, TrainConfig
 
 if __name__ == "__main__":
     task = get_conll_2003()
-    train_config = TrainConfig(experiment_name="test_conll", do_test_loop=True)
+    train_config = TrainConfig(experiment_name="test_conll", do_train=False, do_few_sample=True)
 
     sequencer = TrainSequencer(get_bert_base(), task, train_config)
     sequencer.train()

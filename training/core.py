@@ -27,6 +27,7 @@ class TrainConfig:
     do_train: bool = True
     do_test_overfit: bool = False
     do_test_loop: bool = False
+    do_few_sample: bool = True
 
     num_runs: int = 1
     batch_size_multiplier: int = 1
@@ -48,13 +49,13 @@ class TrainSequencer:
 
         dataset_dict = self.task.tokenize(tokenizer)
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
-            dataset_dict = prepare_test_dsd(dataset_dict, use_test=self.task.use_test)
+            dataset_dict = prepare_test_dsd(dataset_dict, self.task.validation_col, self.task.test_col)
         else:
-            dataset_dict = prepare_dsd(dataset_dict, low_sample=True, use_test=self.task.use_test)
+            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample, self.task.validation_col, self.task.test_col)
         dataset_dict = shuffle_ds(dataset_dict)
 
         model_loader = self.task.get_model_loader(self.model_factory)
-        metric_holder = self.task.load_metrics_holder()
+        metric_holder = self.task.load_metric_holder()
 
         for i in range(self.train_config.num_runs):
             self.train_loop(model_loader, tokenizer, dataset_dict, metric_holder, i)

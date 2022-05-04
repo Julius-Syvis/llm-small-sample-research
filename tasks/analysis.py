@@ -19,6 +19,8 @@ def analyse_task(task):
 
 
 if __name__ == "__main__":
+    pass
+
     # NER (coNLL)
     # 14042, 3251, 3454
     # [id, tokens, chunk_tags, pos_tags, ner_tags]
@@ -30,12 +32,11 @@ if __name__ == "__main__":
     analyse_task(get_swag())
 
     # Sentence Classification (AGNews)
-    # 120000, 7600
+    # 120000, T: 7600
     # [text, label, names, id]
     analyse_task(get_ag_news())
 
-    # TODO: make this run
-    # Extractive Question Answering ()
-    #
-    # []
+    # Extractive Question Answering (SQUAD 2)
+    # 130319, V: 11873
+    # [id, title, context, question, answers(text, answer_start)]
     analyse_task(get_squad_v2())

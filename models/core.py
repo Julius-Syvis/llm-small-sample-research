@@ -1,5 +1,7 @@
+from typing import List
+
 from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, AutoModelForTokenClassification, \
-    AutoTokenizer, AutoModelForMultipleChoice
+    AutoTokenizer, AutoModelForMultipleChoice, AutoModelForSequenceClassification
 
 from models import CACHE_DIR
 
@@ -26,7 +28,7 @@ class ModelFactory:
         model = model.cuda()
         return model
 
-    def load_token_classification_model(self, label_names) -> PreTrainedModel:
+    def load_token_classification_model(self, label_names: List[str]) -> PreTrainedModel:
         id2label = {str(i): label for i, label in enumerate(label_names)}
         label2id = {v: k for k, v in id2label.items()}
 
@@ -43,6 +45,20 @@ class ModelFactory:
     def load_multiple_choice_model(self) -> PreTrainedModel:
         model = AutoModelForMultipleChoice.from_pretrained(
             self.model_hub_name,
+            cache_dir=CACHE_DIR
+        )
+
+        model = model.cuda()
+        return model
+
+    def load_classification_model(self, label_names: List[str]) -> PreTrainedModel:
+        id2label = {str(i): label for i, label in enumerate(label_names)}
+        label2id = {v: k for k, v in id2label.items()}
+
+        model = AutoModelForSequenceClassification.from_pretrained(
+            self.model_hub_name,
+            id2label=id2label,
+            label2id=label2id,
             cache_dir=CACHE_DIR
         )
 

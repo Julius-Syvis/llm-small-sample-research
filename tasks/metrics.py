@@ -13,7 +13,7 @@ class MetricComputer(abc.ABC):
         raise NotImplementedError
 
 
-class SeqEvalComputer(MetricComputer):
+class NERComputer(MetricComputer):
     def __init__(self):
         self.metric = load_metric("seqeval", cache_dir=CACHE_DIR)
 
@@ -28,7 +28,25 @@ class SeqEvalComputer(MetricComputer):
         }
 
 
-class MultipleChoiceComputer(MetricComputer):
+class ClassificationComputer(MetricComputer):
+    def __init__(self):
+        # self.precision_metric = load_metric("precision", cache_dir=CACHE_DIR)
+        # self.recall_metric = load_metric("recall", cache_dir=CACHE_DIR)
+        # self.f1_metric = load_metric("f1", cache_dir=CACHE_DIR)
+        self.accuracy_metric = load_metric("accuracy", cache_dir=CACHE_DIR)
+
+    def compute_metrics(self, predictions: List, references: List) -> Dict[str, float]:
+        accuracy = self.accuracy_metric.compute(predictions=predictions, references=references)['accuracy']
+        return {
+            # "precision": self.precision_metric.compute(predictions=predictions, references=references, average='macro'),
+            # "recall": self.recall_metric.compute(predictions=predictions, references=references, average='macro'),
+            # "f1": self.f1_metric.compute(predictions=predictions, references=references, average='macro'),
+            "accuracy": accuracy,
+            "error": 1 - accuracy,
+        }
+
+
+class AccuracyComputer(MetricComputer):
     def compute_metrics(self, predictions: List, references: List) -> Dict[str, float]:
         preds = np.argmax(predictions, axis=1)
         return {
@@ -54,7 +72,8 @@ class MetricHolder(MetricComputer):
         return computed_metrics
 
 
-def conll_converter(label_names: List[str], logits: List[List[float]], references: List[List[int]]) -> Tuple[List, List]:
+def conll_converter(label_names: List[str], logits: List[List[float]],
+                    references: List[List[int]]) -> Tuple[List, List]:
     predictions = [np.argmax(ls, 1) for ls in logits]
 
     def convert_label(label):
@@ -68,3 +87,12 @@ def conll_converter(label_names: List[str], logits: List[List[float]], reference
     true_predictions = list(map(convert_prediction, zip(predictions, references)))
 
     return true_predictions, true_labels
+
+
+def classification_converter(label_names: List[str], logits: List[float], references: List[int]) -> Tuple[List, List]:
+    predictions = np.argmax(logits, 1)
+
+    # true_labels = list(map(lambda label: label_names[label[0]], references))
+    # true_predictions = list(map(lambda label: label_names[label], predictions))
+
+    return predictions, references

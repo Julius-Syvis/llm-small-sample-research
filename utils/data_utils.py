@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 
 from datasets import Dataset, DatasetDict
 
@@ -10,8 +10,8 @@ def shuffle_ds(dsd: Union[Dataset, DatasetDict]) -> DatasetDict:
     return dsd
 
 
-def prepare_test_dsd(dsd: DatasetDict, use_test: bool) -> DatasetDict:
-    dsd = prepare_dsd(dsd, False, use_test)
+def prepare_test_dsd(dsd: DatasetDict, validation_col: Optional[str], test_col: Optional[str]) -> DatasetDict:
+    dsd = prepare_dsd(dsd, False, validation_col, test_col)
     return DatasetDict({
         "train": dsd["train"].train_test_split(100, seed=SEED)["test"],
         "validation": dsd["validation"].train_test_split(10, seed=SEED)["test"],
@@ -19,18 +19,28 @@ def prepare_test_dsd(dsd: DatasetDict, use_test: bool) -> DatasetDict:
     })
 
 
-def prepare_dsd(dsd: DatasetDict, low_sample: bool, use_test: bool) -> DatasetDict:
-    train_ds: Dataset = dsd['train']
-    val_ds: Dataset = dsd['validation']
+def prepare_dsd(dsd: DatasetDict, few_sample: bool,
+                validation_col: Optional[str], test_col: Optional[str]) -> DatasetDict:
+    assert not(validation_col is None and test_col is None)
+    missing_column = validation_col is None or test_col is None
 
-    if not use_test:
+    train_ds: Dataset = dsd['train']
+
+    if validation_col is not None:
+        val_ds: Dataset = dsd[validation_col]
+    if test_col is not None:
+        test_ds: Dataset = dsd[test_col]
+
+        if validation_col is None:
+            val_ds = test_ds
+            del test_ds
+
+    if missing_column:
         split_subset = val_ds.train_test_split(0.5, 0.5, seed=SEED)
         val_ds = split_subset["train"]
         test_ds = split_subset["test"]
-    else:
-        test_ds = dsd["test"]
 
-    if low_sample:
+    if few_sample:
         train_ds = train_ds.train_test_split(1000, seed=SEED)["test"]
 
     return DatasetDict({
