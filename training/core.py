@@ -29,6 +29,8 @@ class TrainConfig:
     do_test_loop: bool = False
 
     num_runs: int = 1
+    batch_size_multiplier: int = 1
+    do_save: bool = True
 
     experiment_name: str = '0'
     track_metric: Optional[str] = None
@@ -46,14 +48,13 @@ class TrainSequencer:
 
         dataset_dict = self.task.tokenize(tokenizer)
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
-            dataset_dict = prepare_test_dsd(dataset_dict)
+            dataset_dict = prepare_test_dsd(dataset_dict, use_test=self.task.use_test)
         else:
-            dataset_dict = prepare_dsd(dataset_dict, True)
+            dataset_dict = prepare_dsd(dataset_dict, low_sample=True, use_test=self.task.use_test)
         dataset_dict = shuffle_ds(dataset_dict)
 
-        label_names = self.task.loaded_dataset["train"].features["ner_tags"].feature.names
-        model_loader = partial(self.model_factory.load_token_classification_model, label_names)
-        metric_holder = self.task.load_metrics_holder(label_names)
+        model_loader = self.task.get_model_loader(self.model_factory)
+        metric_holder = self.task.load_metrics_holder()
 
         for i in range(self.train_config.num_runs):
             self.train_loop(model_loader, tokenizer, dataset_dict, metric_holder, i)
@@ -69,7 +70,8 @@ class TrainSequencer:
         train_output = None
         if self.train_config.do_train:
             train_output = trainer.train()
-            model.save_pretrained(self.get_path(CHECKPOINTS_PATH / "BEST", run_id))
+            if self.train_config.do_save:
+                model.save_pretrained(self.get_path(CHECKPOINTS_PATH / "BEST", run_id))
 
         if "test" in dataset_dict:
             evaluations = self.evaluate_dataset(trainer, dataset_dict["test"])
@@ -89,10 +91,10 @@ class TrainSequencer:
             evaluation_strategy=eval_strategy,
             eval_steps=eval_steps,
 
-            save_strategy=eval_strategy,
+            save_strategy=eval_strategy if self.train_config.do_save else "no",
             save_steps=eval_steps,
             save_total_limit=1,
-            load_best_model_at_end=True,
+            load_best_model_at_end=self.train_config.do_save,
             metric_for_best_model=self.train_config.track_metric,
 
             logging_steps=eval_steps,
@@ -107,11 +109,11 @@ class TrainSequencer:
             lr_scheduler_type="linear",  # Default
             learning_rate=5e-5,  # Default
 
-            per_device_train_batch_size=1,
-            per_device_eval_batch_size=1,
-            gradient_accumulation_steps=16,
+            per_device_train_batch_size=1 * self.train_config.batch_size_multiplier,
+            per_device_eval_batch_size=1 * self.train_config.batch_size_multiplier,
+            gradient_accumulation_steps=32,
             gradient_checkpointing=True,
-            eval_accumulation_steps=1,
+            eval_accumulation_steps=1 * self.train_config.batch_size_multiplier,
             fp16=True,
             fp16_full_eval=True,
 
@@ -155,13 +157,17 @@ class TrainSequencer:
         losses, logits, labels = list(zip(*list(map(get_entry_loss, dataset))))
 
         def get_decoded_sentences(entry):
-            return trainer.tokenizer.decode(entry['input_ids'][0])
+            input_ids = entry['input_ids'][0]
+            if len(input_ids.shape) == 2:
+                return [trainer.tokenizer.decode(input_row) for input_row in input_ids]
+            else:
+                return trainer.tokenizer.decode(input_ids)
 
         sentences = list(map(get_decoded_sentences, dataset))
 
         return {
             "loss": torch.stack(losses).cpu().numpy(),
-            "logits": list(map(lambda x: x[0, :, :].cpu().numpy(), logits)),
+            "logits": list(map(lambda x: x[0].cpu().numpy(), logits)),
             "labels": list(map(lambda x: x.flatten().cpu().numpy(), labels)),
             "sentences": sentences,
         }

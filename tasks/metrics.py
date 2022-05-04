@@ -4,6 +4,8 @@ from typing import List, Dict, Optional, Callable, Tuple
 import numpy as np
 from datasets import load_metric
 
+from models import CACHE_DIR
+
 
 class MetricComputer(abc.ABC):
     @abc.abstractmethod
@@ -13,7 +15,7 @@ class MetricComputer(abc.ABC):
 
 class SeqEvalComputer(MetricComputer):
     def __init__(self):
-        self.metric = load_metric("seqeval")
+        self.metric = load_metric("seqeval", cache_dir=CACHE_DIR)
 
     def compute_metrics(self, predictions: List, references: List) -> Dict[str, float]:
         computed_metrics = self.metric.compute(predictions=predictions, references=references)
@@ -23,6 +25,14 @@ class SeqEvalComputer(MetricComputer):
             "recall": computed_metrics["overall_recall"],
             "f1": computed_metrics["overall_f1"],
             "accuracy": computed_metrics["overall_accuracy"],
+        }
+
+
+class MultipleChoiceComputer(MetricComputer):
+    def compute_metrics(self, predictions: List, references: List) -> Dict[str, float]:
+        preds = np.argmax(predictions, axis=1)
+        return {
+            "accuracy": (preds == references).astype(np.float32).mean().item()
         }
 
 

@@ -1,5 +1,5 @@
 from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, AutoModelForTokenClassification, \
-    AutoTokenizer
+    AutoTokenizer, AutoModelForMultipleChoice
 
 from models import CACHE_DIR
 
@@ -34,6 +34,15 @@ class ModelFactory:
             self.model_hub_name,
             id2label=id2label,
             label2id=label2id,
+            cache_dir=CACHE_DIR
+        )
+
+        model = model.cuda()
+        return model
+
+    def load_multiple_choice_model(self) -> PreTrainedModel:
+        model = AutoModelForMultipleChoice.from_pretrained(
+            self.model_hub_name,
             cache_dir=CACHE_DIR
         )
 

@@ -1,44 +1,53 @@
 import abc
 from functools import partial
-from typing import List, Optional
+from itertools import chain
+from typing import List, Optional, Callable
 
 from datasets import load_dataset, DatasetDict
 from datasets.arrow_dataset import Batch
-from transformers import PreTrainedTokenizerBase, BatchEncoding, DataCollatorForTokenClassification
+from transformers import PreTrainedTokenizerBase, BatchEncoding, DataCollatorForTokenClassification, PreTrainedModel, \
+    DataCollator
 
-from tasks.metrics import MetricHolder, SeqEvalComputer, conll_converter
+from models import CACHE_DIR
+from models.core import ModelFactory
+from tasks.collators import DataCollatorForMultipleChoice
+from tasks.metrics import MetricHolder, SeqEvalComputer, conll_converter, MultipleChoiceComputer
 
 
 class Task(abc.ABC):
-    def __init__(self, hub_dataset_name: str):
+    def __init__(self, hub_dataset_name: str, use_test: bool = True):
         self.hub_dataset_name: str = hub_dataset_name
-        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name)
+        self.use_test = use_test
+        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR)
 
     @abc.abstractmethod
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def load_data_collator(self, tokenizer: PreTrainedTokenizerBase):
+    def load_data_collator(self, tokenizer: PreTrainedTokenizerBase) -> DataCollator:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def load_metrics_holder(self, **kwargs):
+    def load_metrics_holder(self) -> MetricHolder:
         raise NotImplementedError
 
     def tokenize(self, tokenizer: PreTrainedTokenizerBase) -> DatasetDict:
         return self.loaded_dataset.map(
             partial(self._tokenize_and_align_labels, tokenizer),
             batched=True,
-            remove_columns=self.loaded_dataset["train"].column_names
+            remove_columns=set(self.loaded_dataset["train"].column_names) - {'label'},
         )
 
+    def get_model_loader(self, model_factory: ModelFactory) -> Callable[[], PreTrainedModel]:
+        raise NotImplementedError
 
+
+# https://huggingface.co/course/chapter7/2?fw=pt
 class NERTask(Task):
-    def __init__(self, hub_dataset_name: str):
-        super().__init__(hub_dataset_name)
+    def __init__(self, hub_dataset_name: str, use_test: bool = True):
+        super().__init__(hub_dataset_name, use_test)
 
-    # https://huggingface.co/course/chapter7/2
     def _align_labels_with_tokens(self, labels: List[int], word_ids: List[Optional[int]]):
         new_labels = []
         current_word = None
@@ -70,7 +79,6 @@ class NERTask(Task):
         all_labels = examples["ner_tags"]
         new_labels = []
         for i, labels in enumerate(all_labels):
-            # TODO: handle unicode encoding for NER
             word_ids = tokenized_inputs.word_ids(i)
             new_labels.append(self._align_labels_with_tokens(labels, word_ids))
 
@@ -80,34 +88,84 @@ class NERTask(Task):
     def load_data_collator(self, tokenizer: PreTrainedTokenizerBase):
         return DataCollatorForTokenClassification(tokenizer)  # Pads both inputs and labels
 
-    def load_metrics_holder(self, label_names):
+    def load_metrics_holder(self) -> MetricHolder:
         metrics = [
             SeqEvalComputer()
         ]
 
         converters = [
-            partial(conll_converter, label_names)
+            partial(conll_converter, self._get_label_names())
         ]
 
         return MetricHolder(metrics, converters)
 
+    def _get_label_names(self) -> List[str]:
+        return self.loaded_dataset["train"].features["ner_tags"].feature.names
 
+    def get_model_loader(self, model_factory) -> Callable[[], PreTrainedModel]:
+        return partial(model_factory.load_token_classification_model, self._get_label_names())
+
+
+# https://github.com/huggingface/transformers/tree/main/examples/pytorch/multiple-choice
 class MultipleChoiceTask(Task):
-    def __init__(self, hub_dataset_name: str):
-        super().__init__(hub_dataset_name)
-        # TODO: handle multiple choice encoding & heads
+    def __init__(self, hub_dataset_name: str, use_test: bool = True):
+        super().__init__(hub_dataset_name, use_test)
+
+    def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
+        ending_names = [f"ending{i}" for i in range(4)]
+        context_name = "sent1"
+        question_header_name = "sent2"
+
+        first_sentences = [[context] * 4 for context in examples[context_name]]
+        question_headers = examples[question_header_name]
+        second_sentences = [
+            [f"{header} {examples[end][i]}" for end in ending_names] for i, header in enumerate(question_headers)
+        ]
+
+        # Flatten out
+        first_sentences = list(chain(*first_sentences))
+        second_sentences = list(chain(*second_sentences))
+
+        # Tokenize
+        tokenized_examples = tokenizer(
+            first_sentences,
+            second_sentences,
+            truncation=True,
+            max_length=512,  # No matter what, the max length is always 512
+            padding=False,
+        )
+
+        # Un-flatten
+        tokenized_examples = {k: [v[i: i + 4] for i in range(0, len(v), 4)] for k, v in tokenized_examples.items()}
+
+        return tokenized_examples
+
+    def load_data_collator(self, tokenizer: PreTrainedTokenizerBase) -> DataCollator:
+        return DataCollatorForMultipleChoice(tokenizer)
+
+    def load_metrics_holder(self) -> MetricHolder:
+        metrics = [
+            MultipleChoiceComputer()
+        ]
+
+        return MetricHolder(metrics)
+
+    def get_model_loader(self, model_factory: ModelFactory) -> Callable[[], PreTrainedModel]:
+        return model_factory.load_multiple_choice_model
 
 
 class ClassificationTask(Task):
-    def __init__(self, hub_dataset_name: str):
-        super().__init__(hub_dataset_name)
+    def __init__(self, hub_dataset_name: str, use_test: bool = True):
+        super().__init__(hub_dataset_name, use_test)
         # TODO: handle classification encoding & heads
+        # https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification
 
 
 class ExtractiveQuestionAnsweringTask(Task):
-    def __init__(self, hub_dataset_name: str):
-        super().__init__(hub_dataset_name)
+    def __init__(self, hub_dataset_name: str, use_test: bool = True):
+        super().__init__(hub_dataset_name, use_test)
         # TODO: handle classification encoding & heads
+        # https://github.com/huggingface/transformers/tree/main/examples/pytorch/question-answering
 
 
 def get_conll_2003() -> NERTask:
@@ -115,7 +173,7 @@ def get_conll_2003() -> NERTask:
 
 
 def get_swag() -> MultipleChoiceTask:
-    return MultipleChoiceTask("swag")
+    return MultipleChoiceTask("swag", use_test=False)
 
 
 def get_ag_news() -> ClassificationTask:
