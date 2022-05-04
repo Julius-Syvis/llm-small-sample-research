@@ -1,6 +1,6 @@
+import logging
 import os
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -19,6 +19,7 @@ from tasks.metrics import MetricHolder
 from training import CHECKPOINTS_PATH, LOGS_PATH, OUTPUTS_PATH
 from utils.data_utils import prepare_test_dsd, shuffle_ds, prepare_dsd
 from utils.gpu_utils import cleanup
+from utils.logging_utils import setup_logging
 from utils.seed_utils import SEED
 
 
@@ -45,47 +46,74 @@ class TrainSequencer:
 
     @cleanup
     def train(self):
+        setup_logging(self.train_config.experiment_name)
+        logging.info(f"Running experiment {self.train_config.experiment_name} "
+                     f"on {self.model_factory.model_hub_name} "
+                     f"with {self.task.hub_dataset_name}..")
+
+        logging.info("Loading tokenizer..")
         tokenizer = self.model_factory.load_tokenizer()
 
+        logging.info("Tokenizing dataset..")
         dataset_dict = self.task.tokenize(tokenizer)
+
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
+            logging.info("Preparing test dataset..")
             dataset_dict = prepare_test_dsd(dataset_dict, self.task.validation_col, self.task.test_col)
         else:
+            logging.info("Preparing full dataset..")
             dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample, self.task.validation_col, self.task.test_col)
+
+        logging.info("Shuffling..")
         dataset_dict = shuffle_ds(dataset_dict)
 
+        logging.info("Getting model loader..")
         model_loader = self.task.get_model_loader(self.model_factory)
+
+        logging.info("Loading metric holder..")
         metric_holder = self.task.load_metric_holder()
 
         for i in range(self.train_config.num_runs):
-            self.train_loop(model_loader, tokenizer, dataset_dict, metric_holder, i)
+            logging.info(f"Starting training for step {i}..")
+            self._train_loop(model_loader, tokenizer, dataset_dict, metric_holder, i)
 
     @cleanup
-    def train_loop(self, model_loader: Callable[[], PreTrainedModel], tokenizer: PreTrainedTokenizerBase,
-                   dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int):
+    def _train_loop(self, model_loader: Callable[[], PreTrainedModel], tokenizer: PreTrainedTokenizerBase,
+                    dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int):
+        logging.info(f"Loading data collator..")
         data_collator = self.task.load_data_collator(tokenizer)
+
+        logging.info(f"Loading model..")
         model = model_loader()
 
-        trainer = self.get_trainer(model, tokenizer, data_collator, dataset_dict, metric_holder, run_id)
+        logging.info(f"Getting trainer..")
+        trainer = self._get_trainer(model, tokenizer, data_collator, dataset_dict, metric_holder, run_id)
 
         train_output = None
         if self.train_config.do_train:
+            logging.info(f"Training..")
             train_output = trainer.train()
             if self.train_config.do_save:
-                model.save_pretrained(self.get_path(CHECKPOINTS_PATH / "BEST", run_id))
+                logging.info(f"Saving best model..")
+                model.save_pretrained(self._get_path(CHECKPOINTS_PATH / "BEST", run_id))
 
         if "test" in dataset_dict:
-            evaluations = self.evaluate_dataset(trainer, dataset_dict["test"])
-            metrics = self.compute_metrics(metric_holder, evaluations, train_output)
-            self.save_results(metrics, evaluations, run_id)
+            logging.info(f"Running evaluation..")
+            evaluations = self._evaluate_dataset(trainer, dataset_dict["test"])
 
-    def get_trainer(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
-                    dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int) -> Trainer:
-        max_steps, eval_steps = self.get_step_counts()
+            logging.info(f"Computing metrics..")
+            metrics = self._compute_metrics(metric_holder, evaluations, train_output)
+
+            logging.info(f"Saving results..")
+            self._save_results(metrics, evaluations, run_id)
+
+    def _get_trainer(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
+                     dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int) -> Trainer:
+        max_steps, eval_steps = self._get_step_counts()
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
-            output_dir=self.get_path(CHECKPOINTS_PATH, run_id),  # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
+            output_dir=self._get_path(CHECKPOINTS_PATH, run_id),  # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
             overwrite_output_dir=True,
             max_steps=max_steps,
 
@@ -99,7 +127,7 @@ class TrainSequencer:
             metric_for_best_model=self.train_config.track_metric,
 
             logging_steps=eval_steps,
-            logging_dir=self.get_path(LOGS_PATH, run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
+            logging_dir=self._get_path(LOGS_PATH, run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
             log_level='error',
             report_to="tensorboard",
 
@@ -134,12 +162,12 @@ class TrainSequencer:
             train_dataset=dataset_dict["train"],
             eval_dataset=dataset_dict["validation"] if "validation" in dataset_dict else None,
             compute_metrics=lambda metrics: metric_holder.compute_metrics(metrics.predictions, metrics.label_ids),
-            callbacks=self.get_callbacks(),
+            callbacks=self._get_callbacks(),
         )
 
         return trainer
 
-    def evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
+    def _evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
         dataset = DataLoader(
             dataset,
             sampler=trainer._get_eval_sampler(dataset),
@@ -173,8 +201,8 @@ class TrainSequencer:
             "sentences": sentences,
         }
 
-    def compute_metrics(self, metric_holder: MetricHolder, evaluations: Dict[str, List],
-                        train_output: Optional[TrainOutput]) -> Dict[str, float]:
+    def _compute_metrics(self, metric_holder: MetricHolder, evaluations: Dict[str, List],
+                         train_output: Optional[TrainOutput]) -> Dict[str, float]:
         metrics = metric_holder.compute_metrics(evaluations["logits"], evaluations["labels"])
         metrics["test_loss"] = np.mean(evaluations["loss"])
 
@@ -185,7 +213,7 @@ class TrainSequencer:
 
         return metrics
 
-    def save_results(self, metrics: Dict[str, float], evaluations: Dict[str, List], run_id: int):
+    def _save_results(self, metrics: Dict[str, float], evaluations: Dict[str, List], run_id: int):
         df_metrics = pd.DataFrame({k: [v] for (k, v) in metrics.items()})
         model_name = self.model_factory.model_hub_name.split("/")[-1]
         df_metrics["model"] = [model_name]
@@ -194,11 +222,11 @@ class TrainSequencer:
         # Save evals to:
         # .results/outputs/{ID}/{task}/{model}/evals_XXX.tsv
         df_evals = pd.DataFrame(evaluations)
-        df_evals.to_csv(self.get_path(OUTPUTS_PATH, None) / f"evals_{run_id}.tsv", sep="\t")
+        df_evals.to_csv(self._get_path(OUTPUTS_PATH, None) / f"evals_{run_id}.tsv", sep="\t")
 
         # Save metrics to:
         # .results/outputs/{ID}/{task}/metrics.tsv
-        metrics_path = self.get_path(OUTPUTS_PATH, None, False) / f"metrics.tsv"
+        metrics_path = self._get_path(OUTPUTS_PATH, None, False) / f"metrics.tsv"
         if os.path.exists(metrics_path):
             df_metrics_loaded = pd.read_csv(metrics_path, sep="\t")
 
@@ -214,7 +242,7 @@ class TrainSequencer:
 
         df_metrics.to_csv(metrics_path, sep="\t", index=False)
 
-    def get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True):
+    def _get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True):
         # Save to .results/logs/{ID}/{task}/{model}/{ID}/
         experiment_name = self.train_config.experiment_name
 
@@ -238,7 +266,7 @@ class TrainSequencer:
 
         return path
 
-    def get_step_counts(self):
+    def _get_step_counts(self):
         if self.train_config.do_test_overfit:
             return 250, 50
         elif self.train_config.do_test_loop:
@@ -246,7 +274,7 @@ class TrainSequencer:
         else:
             return 2_000, 50
 
-    def get_callbacks(self):
+    def _get_callbacks(self):
         callbacks = []
 
         if not self.train_config.do_test_overfit:
