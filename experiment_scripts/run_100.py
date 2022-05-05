@@ -10,10 +10,11 @@ if __name__ == "__main__":
 
             config = TrainConfig(
                 do_train=True,
-                do_few_sample=False,
+                do_few_sample=True,
+                custom_train_sample_count=100,
 
                 batch_size_multiplier=2,
-                experiment_name=f"full_samples_{task.hub_dataset_name}",
+                experiment_name=f"100_samples_{task.hub_dataset_name}",
             )
 
             sequencer = TrainSequencer(model_factory, task, config)

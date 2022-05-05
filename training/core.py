@@ -29,6 +29,7 @@ class TrainConfig:
     do_test_overfit: bool = False
     do_test_loop: bool = False
     do_few_sample: bool = True
+    custom_train_sample_count: Optional[int] = None
 
     num_runs: int = 1
     batch_size_multiplier: int = 1
@@ -62,7 +63,7 @@ class TrainSequencer:
             dataset_dict = prepare_test_dsd(dataset_dict, self.task.validation_col, self.task.test_col)
         else:
             logging.info("Preparing full dataset..")
-            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample, self.task.validation_col, self.task.test_col)
+            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample, self.train_config.custom_train_sample_count,self.task.validation_col, self.task.test_col)
 
         logging.info("Shuffling..")
         dataset_dict = shuffle_ds(dataset_dict)
@@ -124,7 +125,7 @@ class TrainSequencer:
             save_steps=eval_steps,
             save_total_limit=1,
             load_best_model_at_end=self.train_config.do_save,
-            metric_for_best_model=self.train_config.track_metric,
+            metric_for_best_model=self.task.track_metric,
 
             logging_steps=eval_steps,
             logging_dir=self._get_path(LOGS_PATH, run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/

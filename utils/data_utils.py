@@ -11,7 +11,7 @@ def shuffle_ds(dsd: Union[Dataset, DatasetDict]) -> DatasetDict:
 
 
 def prepare_test_dsd(dsd: DatasetDict, validation_col: Optional[str], test_col: Optional[str]) -> DatasetDict:
-    dsd = prepare_dsd(dsd, False, validation_col, test_col)
+    dsd = prepare_dsd(dsd, False, None, validation_col, test_col)
     return DatasetDict({
         "train": dsd["train"].train_test_split(100, seed=SEED)["test"],
         "validation": dsd["validation"].train_test_split(10, seed=SEED)["test"],
@@ -19,7 +19,7 @@ def prepare_test_dsd(dsd: DatasetDict, validation_col: Optional[str], test_col: 
     })
 
 
-def prepare_dsd(dsd: DatasetDict, few_sample: bool,
+def prepare_dsd(dsd: DatasetDict, few_sample: bool, custom_train_sample_count: Optional[int],
                 validation_col: Optional[str], test_col: Optional[str]) -> DatasetDict:
     assert not(validation_col is None and test_col is None)
     missing_column = validation_col is None or test_col is None
@@ -41,7 +41,8 @@ def prepare_dsd(dsd: DatasetDict, few_sample: bool,
         test_ds = split_subset["test"]
 
     if few_sample:
-        train_ds = train_ds.train_test_split(1000, seed=SEED)["test"]
+        train_sample_count = custom_train_sample_count if custom_train_sample_count else 1000
+        train_ds = train_ds.train_test_split(train_sample_count, seed=SEED)["test"]
 
     return DatasetDict({
         "train": train_ds,

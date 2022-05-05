@@ -1,7 +1,7 @@
 import abc
 from functools import partial
 from itertools import chain
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Generator
 
 from datasets import load_dataset, DatasetDict
 from datasets.arrow_dataset import Batch
@@ -18,10 +18,12 @@ from tasks.metrics import MetricHolder, ClassificationComputer, conll_converter,
 class Task(abc.ABC):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test"):
+                 test_col: Optional[str] = "test",
+                 track_metric: Optional[str] = None):
         self.hub_dataset_name: str = hub_dataset_name
         self.validation_col = validation_col
         self.test_col = test_col
+        self.track_metric = track_metric
         self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR)
 
     @abc.abstractmethod
@@ -52,8 +54,9 @@ class Task(abc.ABC):
 class NERTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test"):
-        super().__init__(hub_dataset_name, validation_col, test_col)
+                 test_col: Optional[str] = "test",
+                 track_metric: Optional[str] = None):
+        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _align_labels_with_tokens(self, labels: List[int], word_ids: List[Optional[int]]):
         new_labels = []
@@ -117,8 +120,9 @@ class NERTask(Task):
 class MultipleChoiceTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test"):
-        super().__init__(hub_dataset_name, validation_col, test_col)
+                 test_col: Optional[str] = "test",
+                 track_metric: Optional[str] = None):
+        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         ending_names = [f"ending{i}" for i in range(4)]
@@ -167,8 +171,9 @@ class MultipleChoiceTask(Task):
 class SequenceClassificationTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test"):
-        super().__init__(hub_dataset_name, validation_col, test_col)
+                 test_col: Optional[str] = "test",
+                 track_metric: Optional[str] = None):
+        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         return tokenizer(
@@ -204,8 +209,9 @@ class SequenceClassificationTask(Task):
 class ExtractiveQuestionAnsweringTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test"):
-        super().__init__(hub_dataset_name, validation_col, test_col)
+                 test_col: Optional[str] = "test",
+                 track_metric: Optional[str] = None):
+        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         pass
@@ -221,16 +227,21 @@ class ExtractiveQuestionAnsweringTask(Task):
 
 
 def get_conll_2003() -> NERTask:
-    return NERTask("conll2003")
+    return NERTask("conll2003", track_metric="f1")
 
 
 def get_swag() -> MultipleChoiceTask:
-    return MultipleChoiceTask("swag", test_col=None)  # Ignore test col because it contains -1 labels
+    return MultipleChoiceTask("swag", test_col=None,
+                              track_metric="accuracy")  # Ignore test col because it contains -1 labels
 
 
 def get_ag_news() -> SequenceClassificationTask:
-    return SequenceClassificationTask("ag_news", validation_col=None)
+    return SequenceClassificationTask("ag_news", validation_col=None, track_metric="error")
 
 
 def get_squad_v2() -> ExtractiveQuestionAnsweringTask:
     return ExtractiveQuestionAnsweringTask("squad_v2", test_col=None)
+
+
+def get_supported_tasks() -> Generator[Callable[[], Task], None, None]:
+    return iter([get_conll_2003, get_swag, get_ag_news])
