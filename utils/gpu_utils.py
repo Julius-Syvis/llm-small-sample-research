@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import gc
+import logging
 import subprocess
 from typing import Tuple, Iterable
 
 import torch
 
 
-def get_gpu_stats() -> Tuple[int, int, int]:
+def get_gpu_status() -> Tuple[int, int, int]:
     """
     ref: https://github.com/huggingface/transformers/issues/1742
     """
@@ -30,7 +31,7 @@ def get_gpu_stats() -> Tuple[int, int, int]:
 
 
 def get_gpu_status_str() -> str:
-    used, total, pct = get_gpu_stats()
+    used, total, pct = get_gpu_status()
     return f"{pct:2.1f}% ({used} out of {total})"
 
 
@@ -54,6 +55,10 @@ def cleanup(func):
 
         gc.collect()
         torch.cuda.empty_cache()
+
+        logging.info(f"GPU status: {get_gpu_status_str()}")
+        # logging.info(f"CUDA status: {get_cuda_device_stats_str()}")
+        # logging.info(f"Number of tracked tensors: {len(list(get_tracked_tensors()))}")
 
         return results
 
