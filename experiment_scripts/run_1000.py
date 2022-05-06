@@ -12,7 +12,8 @@ if __name__ == "__main__":
                 do_train=True,
                 do_few_sample=True,
 
-                batch_size_multiplier=2,
+                do_save=False,
+                batch_size_multiplier=4,
                 experiment_name=f"1000_samples_{task.hub_dataset_name}",
             )
 
