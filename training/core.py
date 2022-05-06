@@ -278,7 +278,7 @@ class TrainSequencer:
     def _get_callbacks(self):
         callbacks = []
 
-        if not self.train_config.do_test_overfit:
+        if not self.train_config.do_test_overfit and self.train_config.do_save:
             callbacks.append(EarlyStoppingCallback(3, 0.0))
 
         return callbacks
