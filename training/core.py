@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -34,6 +35,7 @@ class TrainConfig:
     num_runs: int = 1
     batch_size_multiplier: int = 1
     do_save: bool = True
+    delete_after_save: bool = False
 
     experiment_name: str = '0'
     track_metric: Optional[str] = None
@@ -63,7 +65,9 @@ class TrainSequencer:
             dataset_dict = prepare_test_dsd(dataset_dict, self.task.validation_col, self.task.test_col)
         else:
             logging.info("Preparing full dataset..")
-            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample, self.train_config.custom_train_sample_count,self.task.validation_col, self.task.test_col)
+            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
+                                       self.train_config.custom_train_sample_count,
+                                       self.task.validation_col, self.task.test_col)
 
         logging.info("Shuffling..")
         dataset_dict = shuffle_ds(dataset_dict)
@@ -96,7 +100,10 @@ class TrainSequencer:
             train_output = trainer.train()
             if self.train_config.do_save:
                 logging.info(f"Saving best model..")
-                model.save_pretrained(self._get_path(CHECKPOINTS_PATH / "BEST", run_id))
+                model.save_pretrained(self._get_path(CHECKPOINTS_PATH, run_id) / "BEST")
+
+                if self.train_config.delete_after_save:
+                    shutil.rmtree(self._get_path(CHECKPOINTS_PATH, run_id))
 
         if "test" in dataset_dict:
             logging.info(f"Running evaluation..")
@@ -114,7 +121,8 @@ class TrainSequencer:
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
-            output_dir=self._get_path(CHECKPOINTS_PATH, run_id),  # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
+            output_dir=self._get_path(CHECKPOINTS_PATH, run_id),
+            # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
             overwrite_output_dir=True,
             max_steps=max_steps,
 
@@ -243,7 +251,7 @@ class TrainSequencer:
 
         df_metrics.to_csv(metrics_path, sep="\t", index=False)
 
-    def _get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True):
+    def _get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True) -> Path:
         # Save to .results/logs/{ID}/{task}/{model}/{ID}/
         experiment_name = self.train_config.experiment_name
 
