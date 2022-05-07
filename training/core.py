@@ -30,6 +30,9 @@ class MultipleTrainSequencer:
     tasks: List[Callable[[], Task]]
     train_config: TrainConfig
 
+    def __post_init__(self):
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
     @cleanup
     def train(self):
         setup_logging(self.train_config)
