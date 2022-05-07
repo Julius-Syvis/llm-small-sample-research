@@ -2,8 +2,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Generator
 
 import numpy as np
 import pandas as pd
@@ -17,28 +16,32 @@ from transformers.trainer_utils import TrainOutput
 from models.core import ModelFactory
 from tasks.core import Task
 from tasks.metrics import MetricHolder
-from training import CHECKPOINTS_PATH, LOGS_PATH, OUTPUTS_PATH
+from training import get_outputs_path, get_logs_path, get_checkpoints_path
+from training.config import TrainConfig
 from utils.data_utils import prepare_test_dsd, shuffle_ds, prepare_dsd
 from utils.gpu_utils import cleanup
-from utils.logging_utils import setup_logging
+from utils.logging_utils import setup_logging, get_base_path
 from utils.seed_utils import SEED
 
 
 @dataclass(frozen=True)
-class TrainConfig:
-    do_train: bool = True
-    do_test_overfit: bool = False
-    do_test_loop: bool = False
-    do_few_sample: bool = True
-    custom_train_sample_count: Optional[int] = None
+class MultipleTrainSequencer:
+    model_factories: List[Callable[[], ModelFactory]]
+    tasks: List[Callable[[], Task]]
+    train_config: TrainConfig
 
-    num_runs: int = 1
-    batch_size_multiplier: int = 1
-    do_save: bool = True
-    delete_after_save: bool = False
+    @cleanup
+    def train(self):
+        setup_logging(self.train_config)
 
-    experiment_name: str = '0'
-    track_metric: Optional[str] = None
+        for mf in self.model_factories:
+            model_factory = mf()
+
+            for t in self.tasks:
+                task = t()
+
+                sequencer = TrainSequencer(model_factory, task, self.train_config)
+                sequencer.train()
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,6 @@ class TrainSequencer:
 
     @cleanup
     def train(self):
-        setup_logging(self.train_config.experiment_name)
         logging.info(f"Running experiment {self.train_config.experiment_name} "
                      f"on {self.model_factory.model_hub_name} "
                      f"with {self.task.hub_dataset_name}..")
@@ -100,10 +102,10 @@ class TrainSequencer:
             train_output = trainer.train()
             if self.train_config.do_save:
                 logging.info(f"Saving best model..")
-                model.save_pretrained(self._get_path(CHECKPOINTS_PATH, run_id) / "BEST")
+                model.save_pretrained(self._get_checkpoints_path(run_id) / "BEST")
 
                 if self.train_config.delete_after_save:
-                    shutil.rmtree(self._get_path(CHECKPOINTS_PATH, run_id))
+                    shutil.rmtree(self._get_checkpoints_path(run_id))
 
         if "test" in dataset_dict:
             logging.info(f"Running evaluation..")
@@ -121,7 +123,7 @@ class TrainSequencer:
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
-            output_dir=self._get_path(CHECKPOINTS_PATH, run_id),
+            output_dir=self._get_checkpoints_path(run_id),
             # save to .results/checkpoints/{ID}/{task}/{model}/{ID}
             overwrite_output_dir=True,
             max_steps=max_steps,
@@ -134,18 +136,19 @@ class TrainSequencer:
             save_total_limit=1,
             load_best_model_at_end=self.train_config.do_save,
             metric_for_best_model=self.task.track_metric,
+            greater_is_better=self.task.greater_is_better,
 
             logging_steps=eval_steps,
-            logging_dir=self._get_path(LOGS_PATH, run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
+            logging_dir=self._get_logs_path(run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
             log_level='error',
             report_to="tensorboard",
 
             optim="adamw_torch",
             weight_decay=0.01,
             max_grad_norm=1.00,
-            warmup_ratio=0.25,
+            warmup_ratio=0.1,
             lr_scheduler_type="linear",  # Default
-            learning_rate=5e-5,  # Default
+            learning_rate=2e-4,  # Default
 
             per_device_train_batch_size=1 * self.train_config.batch_size_multiplier,
             per_device_eval_batch_size=1 * self.train_config.batch_size_multiplier,
@@ -231,11 +234,13 @@ class TrainSequencer:
         # Save evals to:
         # .results/outputs/{ID}/{task}/{model}/evals_XXX.tsv
         df_evals = pd.DataFrame(evaluations)
-        df_evals.to_csv(self._get_path(OUTPUTS_PATH, None) / f"evals_{run_id}.tsv", sep="\t")
+        df_path = self._get_outputs_path(run_id)
+        os.makedirs(df_path, exist_ok=True)
+        df_evals.to_csv(df_path / f"evals.tsv", sep="\t")
 
         # Save metrics to:
         # .results/outputs/{ID}/{task}/metrics.tsv
-        metrics_path = self._get_path(OUTPUTS_PATH, None, False) / f"metrics.tsv"
+        metrics_path = self._get_metrics_path(run_id) / f"metrics.tsv"
         if os.path.exists(metrics_path):
             df_metrics_loaded = pd.read_csv(metrics_path, sep="\t")
 
@@ -251,29 +256,20 @@ class TrainSequencer:
 
         df_metrics.to_csv(metrics_path, sep="\t", index=False)
 
-    def _get_path(self, base_path: Path, run_id: Optional[int], use_model: bool = True) -> Path:
-        # Save to .results/logs/{ID}/{task}/{model}/{ID}/
-        experiment_name = self.train_config.experiment_name
+    def _get_metrics_path(self, run_id: int):
+        return self._get_base_path(run_id, metrics_path=True)
 
-        if self.train_config.do_test_overfit:
-            experiment_name = f"{experiment_name}_overfit"
+    def _get_outputs_path(self, run_id: int):
+        return get_outputs_path(self._get_base_path(run_id))
 
-        if self.train_config.do_test_loop:
-            experiment_name = f"{experiment_name}_loop"
+    def _get_logs_path(self, run_id: int):
+        return get_logs_path(self._get_base_path(run_id))
 
-        path = base_path \
-               / experiment_name \
-               / self.task.hub_dataset_name.split("/")[-1]
+    def _get_checkpoints_path(self, run_id: int):
+        return get_checkpoints_path(self._get_base_path(run_id))
 
-        if use_model:
-            path /= self.model_factory.model_hub_name.split("/")[-1]
-
-        if run_id is not None:
-            path /= str(run_id)
-
-        os.makedirs(path, exist_ok=True)
-
-        return path
+    def _get_base_path(self, run_id: int, metrics_path: bool = False):
+        return get_base_path(self.train_config, self.task, self.model_factory, run_id, metrics_path)
 
     def _get_step_counts(self):
         if self.train_config.do_test_overfit:

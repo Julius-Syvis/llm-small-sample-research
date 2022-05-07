@@ -7,8 +7,9 @@ from models import CACHE_DIR
 
 
 class ModelFactory:
-    def __init__(self, model_hub_name):
+    def __init__(self, model_hub_name, is_character_level=False):
         self.model_hub_name = model_hub_name
+        self.is_character_level = is_character_level
 
     def load_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
@@ -16,6 +17,8 @@ class ModelFactory:
             add_prefix_space=True,  # needed for RoBERTa to use first token
             cache_dir=CACHE_DIR
         )
+
+        tokenizer.is_character_level = self.is_character_level
 
         return tokenizer
 
@@ -79,11 +82,11 @@ def get_roberta_base() -> ModelFactory:
 
 
 def get_canine_s() -> ModelFactory:
-    return ModelFactory("google/canine-s")
+    return ModelFactory("google/canine-s", is_character_level=True)
 
 
 def get_canine_c() -> ModelFactory:
-    return ModelFactory("google/canine-c")
+    return ModelFactory("google/canine-c", is_character_level=True)
 
 
 def get_electra_base() -> ModelFactory:
@@ -94,12 +97,13 @@ def get_big_bird() -> ModelFactory:
     return ModelFactory("google/bigbird-roberta-base")
 
 
+# TODO: fix gradient checkpointing
 def get_xlnet_base() -> ModelFactory:
     return ModelFactory("xlnet-base-cased")
 
 
 def get_transformer_xl() -> ModelFactory:
-    return ModelFactory("transfo-xl-wt103")
+    return ModelFactory("transfo-xl-wt103", is_character_level=True)
 
 
 def get_xlm() -> ModelFactory:

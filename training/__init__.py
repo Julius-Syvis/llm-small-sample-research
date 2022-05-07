@@ -1,8 +1,16 @@
 from pathlib import Path
 
 TRAINING_PATH = Path(__file__).resolve().parent
-
 RESULTS_PATH = TRAINING_PATH / ".." / ".results"
-CHECKPOINTS_PATH = RESULTS_PATH / "checkpoints"
-LOGS_PATH = RESULTS_PATH / "logs"
-OUTPUTS_PATH = RESULTS_PATH / "outputs"
+
+
+def get_checkpoints_path(path: Path) -> Path:
+    return path / "checkpoints"
+
+
+def get_logs_path(path: Path) -> Path:
+    return path / "logs"
+
+
+def get_outputs_path(path: Path) -> Path:
+    return path / "outputs"

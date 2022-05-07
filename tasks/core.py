@@ -19,11 +19,13 @@ class Task(abc.ABC):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None):
+                 track_metric: Optional[str] = None,
+                 greater_is_better: bool = True):
         self.hub_dataset_name: str = hub_dataset_name
         self.validation_col = validation_col
         self.test_col = test_col
         self.track_metric = track_metric
+        self.greater_is_better = greater_is_better
         self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR)
 
     @abc.abstractmethod
@@ -55,7 +57,8 @@ class NERTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None):
+                 track_metric: Optional[str] = None,
+                 greater_is_better: bool = True):
         super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _align_labels_with_tokens(self, labels: List[int], word_ids: List[Optional[int]]):
@@ -82,15 +85,43 @@ class NERTask(Task):
 
         return new_labels
 
+    def _align_labels_with_chars(self, labels: List[int], word_ids: List[Optional[int]]):
+        new_labels = []
+        current_word = None
+        for word_id in word_ids:
+            if word_id != current_word:
+                current_word = word_id
+                label = -100 if word_id is None else labels[word_id]
+                new_labels.append(label)
+            elif word_id is None:
+                new_labels.append(-100)
+            else:
+                label = labels[word_id]
+                if label % 2 == 1:
+                    label += 1
+
+
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
-        tokenized_inputs = tokenizer(
-            examples["tokens"], truncation=True, is_split_into_words=True
-        )
+        if tokenizer.is_character_level:
+            concatenated_tokens = [' '.join(e) for e in examples.data['tokens']]
+            tokenized_inputs = tokenizer(concatenated_tokens, truncation=True, is_split_into_words=False)
+        else:
+            tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+
         all_labels = examples["ner_tags"]
         new_labels = []
         for i, labels in enumerate(all_labels):
-            word_ids = tokenized_inputs.word_ids(i)
-            new_labels.append(self._align_labels_with_tokens(labels, word_ids))
+            if tokenizer.is_character_level:
+                word_ids = [([j] * len(s)) for (j, s) in enumerate(examples.data['tokens'][i])]
+                word_ids = list(chain(*[[None, *w] for w in word_ids]))[1:]
+                word_ids = [None, *word_ids, None]
+
+                raise NotImplementedError
+            else:
+                word_ids = tokenized_inputs.word_ids(i)
+
+            aligned_labels = self._align_labels_with_tokens(labels, word_ids)
+            new_labels.append(aligned_labels)
 
         tokenized_inputs["labels"] = new_labels
         return tokenized_inputs
@@ -121,7 +152,8 @@ class MultipleChoiceTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None):
+                 track_metric: Optional[str] = None,
+                 greater_is_better: bool = True):
         super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
@@ -172,7 +204,8 @@ class SequenceClassificationTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None):
+                 track_metric: Optional[str] = None,
+                 greater_is_better: bool = True):
         super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
@@ -210,7 +243,8 @@ class ExtractiveQuestionAnsweringTask(Task):
     def __init__(self, hub_dataset_name: str,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None):
+                 track_metric: Optional[str] = None,
+                 greater_is_better: bool = True):
         super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
@@ -231,12 +265,12 @@ def get_conll_2003() -> NERTask:
 
 
 def get_swag() -> MultipleChoiceTask:
-    return MultipleChoiceTask("swag", test_col=None,
-                              track_metric="accuracy")  # Ignore test col because it contains -1 labels
+    # Ignore test col because it contains -1 labels
+    return MultipleChoiceTask("swag", test_col=None, track_metric="accuracy")
 
 
 def get_ag_news() -> SequenceClassificationTask:
-    return SequenceClassificationTask("ag_news", validation_col=None, track_metric="error")
+    return SequenceClassificationTask("ag_news", validation_col=None, track_metric="error", greater_is_better=False)
 
 
 def get_squad_v2() -> ExtractiveQuestionAnsweringTask:
