@@ -148,7 +148,7 @@ class TrainSequencer:
             max_grad_norm=1.00,
             warmup_ratio=0.1,
             lr_scheduler_type="linear",  # Default
-            learning_rate=2e-4,  # Default
+            learning_rate=2e-4,
 
             per_device_train_batch_size=1 * self.train_config.batch_size_multiplier,
             per_device_eval_batch_size=1 * self.train_config.batch_size_multiplier,
@@ -283,6 +283,6 @@ class TrainSequencer:
         callbacks = []
 
         if not self.train_config.do_test_overfit and self.train_config.do_save:
-            callbacks.append(EarlyStoppingCallback(3, 0.0))
+            callbacks.append(EarlyStoppingCallback(5, 0.0))
 
         return callbacks
