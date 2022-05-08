@@ -358,4 +358,4 @@ def get_squad_v2() -> ExtractiveQuestionAnsweringTask:
 
 
 def get_supported_tasks() -> List[Task]:
-    return [get_conll_2003(), get_swag(), get_ag_news()]
+    return [get_conll_2003(), get_swag(), get_ag_news(), get_squad_v2()]

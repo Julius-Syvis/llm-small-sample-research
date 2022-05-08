@@ -1,9 +1,10 @@
-from typing import List, Generator, Callable
+from typing import List
 
 from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, AutoModelForTokenClassification, \
     AutoTokenizer, AutoModelForMultipleChoice, AutoModelForSequenceClassification, AutoModelForQuestionAnswering
 
 from models import CACHE_DIR
+
 
 class ModelFactory:
     def __init__(self, model_hub_name, is_character_level=False):
@@ -117,6 +118,15 @@ def get_transformer_xl() -> ModelFactory:
 
 def get_xlm() -> ModelFactory:
     return ModelFactory("xlm-roberta-base")
+
+
+def get_character_encoder_model_factories() -> List[ModelFactory]:
+    return [get_canine_c(), get_canine_s(), get_transformer_xl()]
+
+
+def get_word_encoder_model_factories() -> List[ModelFactory]:
+    return [get_bert_base(), get_bert_base_uncased(), get_roberta_base(),
+            get_electra_base(), get_big_bird(), get_xlm()]
 
 
 def get_supported_model_factories() -> List[ModelFactory]:

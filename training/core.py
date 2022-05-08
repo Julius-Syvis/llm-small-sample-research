@@ -210,15 +210,10 @@ class TrainSequencer:
         def get_decoded_sentences(entry):
             input_ids = entry['input_ids']
 
-            if isinstance(input_ids, list):
-                input_ids = np.array(input_ids)
-            else:
-                input_ids = input_ids[0]
+            if not isinstance(input_ids[0], list):
+                input_ids = [input_ids]
 
-            if len(input_ids.shape) == 2:
-                return [trainer.tokenizer.decode(input_row) for input_row in input_ids]
-            else:
-                return trainer.tokenizer.decode(input_ids)
+            return [trainer.tokenizer.decode(input_row) for input_row in input_ids]
 
         sentences = list(map(get_decoded_sentences, dataset))
 
