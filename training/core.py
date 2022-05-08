@@ -61,10 +61,6 @@ class TrainSequencer:
         logging.info("Tokenizing dataset..")
         dataset_dict = self.task.tokenize(tokenizer, self.task.validation_col,
                                           self.task.test_col, self.task.split_by_col)
-        logging.info(f'Prepared dataset with '
-                     f'{len(dataset_dict["train"])}, '
-                     f'{len(dataset_dict["validation"])}, '
-                     f'{len(dataset_dict["test"])} entries.')
 
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
             logging.info("Preparing test dataset..")
@@ -73,6 +69,11 @@ class TrainSequencer:
             logging.info("Preparing full dataset..")
             dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
                                        self.train_config.custom_train_sample_count)
+
+        logging.info(f'Prepared dataset with '
+                     f'{len(dataset_dict["train"])}, '
+                     f'{len(dataset_dict["validation"])}, '
+                     f'{len(dataset_dict["test"])} entries.')
 
         logging.info("Shuffling..")
         dataset_dict = shuffle_ds(dataset_dict)
