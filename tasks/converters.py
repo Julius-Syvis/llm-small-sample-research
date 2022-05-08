@@ -55,8 +55,9 @@ class SquadV2Converter(Converter):
         final_preds = []
 
         for i, (start_logits, end_logits) in enumerate(zip(all_start_logits, all_end_logits)):
-            start_idxs = np.argsort(start_logits)[-20:]
-            end_idxs = np.argsort(end_logits)[-20:]
+            num_to_consider = 20  # Tune this
+            start_idxs = np.argsort(start_logits)[-num_to_consider:]
+            end_idxs = np.argsort(end_logits)[-num_to_consider:]
 
             # Append score for 0-0
             preds = []
@@ -75,9 +76,6 @@ class SquadV2Converter(Converter):
                         "end_logit": all_end_logits[i][end_idx]
                     })
 
-            # Pick best n options, add null option
-            preds = sorted(preds, key=lambda x: x["score"], reverse=True)[:20]
-
             # Add 0 entry
             null_score = all_start_logits[i][0] + all_end_logits[i][0]
             preds.append({
@@ -87,24 +85,31 @@ class SquadV2Converter(Converter):
                 "end_logit": all_end_logits[i][0],
             })
 
-            scores = np.array([pred["score"] for pred in preds])
-            exp_scores = np.exp(scores - np.max(scores))
-            probs = exp_scores / exp_scores.sum()
+            # Pick best n options
+            preds = sorted(preds, key=lambda x: x["score"], reverse=True)[:20]
 
-            for j, prob in enumerate(probs):
-                preds[j]["prob"] = prob
-                preds[j]["text"] = dataset["context"][i][preds[j]["offsets"][0]:preds[j]["offsets"][1]]
+            # Return best option early without threshold
+            final_preds.append(dataset["context"][i][preds[0]["offsets"][0]:preds[0]["offsets"][1]])
 
-            # Pick best prediction
-            i = 0
-            while preds[i]["text"] == "":
-                i += 1
-            best_non_null_pred = preds[i]
-
-            if null_score > best_non_null_pred["score"]:
-                final_preds.append("")
-            else:
-                final_preds.append(best_non_null_pred["text"])
+            # scores = np.array([pred["score"] for pred in preds])
+            # exp_scores = np.exp(scores - np.max(scores))
+            # probs = exp_scores / exp_scores.sum()
+            #
+            # context = dataset["context"][i]
+            # for j, prob in enumerate(probs):
+            #     preds[j]["prob"] = prob
+            #     preds[j]["text"] = context[preds[j]["offsets"][0]:preds[j]["offsets"][1]]
+            #
+            # # Pick best prediction
+            # i = 0
+            # while preds[i]["text"] == "":
+            #     i += 1
+            # best_non_null_pred = preds[i]
+            #
+            # if null_score > best_non_null_pred["score"]:
+            #     final_preds.append("")
+            # else:
+            #     final_preds.append(best_non_null_pred["text"])
 
         return final_preds, references
 
