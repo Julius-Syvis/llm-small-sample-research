@@ -6,10 +6,8 @@ if __name__ == "__main__":
     sequencer = MultipleTrainSequencer(get_supported_model_factories(), get_supported_tasks(),
                                        TrainConfig(
                                            do_train=True,
-                                           do_few_sample=True,
                                            custom_train_sample_count=100,
 
-                                           delete_after_save=True,
                                            batch_size_multiplier=4,
                                            experiment_name=f"100_samples"))
     sequencer.train()

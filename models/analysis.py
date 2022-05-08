@@ -13,7 +13,7 @@ def analyse_model(model_factory: ModelFactory):
     tokenizer = model_factory.load_tokenizer()
     evaluate_tokenizer(tokenizer)
 
-    model = model_factory.load_model().cuda()
+    model = model_factory.load_model()
     evaluate_model(model)
 
     print()

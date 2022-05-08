@@ -14,7 +14,10 @@ class CoNLLConverter(Converter):
     def __init__(self, label_names: List[str]):
         self.label_names = label_names
 
-    def convert(self, dataset: Dataset, logits: List, references: List) -> Tuple[List, List]:
+    def convert(self, dataset: Dataset, logits: np.ndarray, references: np.ndarray) -> Tuple[List, List]:
+        # Logits: [T, Seq, C]
+        # References: [T, Seq]
+
         predictions = [np.argmax(ls, 1) for ls in logits]
 
         def convert_label(label):
@@ -31,16 +34,17 @@ class CoNLLConverter(Converter):
 
 
 class ClassificationConverter(Converter):
-    def convert(self, dataset: Dataset, logits: List, references: List) -> Tuple[List, List]:
-        predictions = np.argmax(logits, 1)
+    def convert(self, dataset: Dataset, logits: List[List[float]], references: List[int]) -> Tuple[List, List]:
+        predictions = np.argmax(logits, -1)
 
         return predictions, references
 
 
 # https://github.com/huggingface/transformers/blob/215e0681e4c3f6ade6e219d022a5e640b42fcb76/examples/pytorch/question-answering/utils_qa.py#L31
 class SquadV2Converter(Converter):
-    def convert(self, dataset: Dataset, logits: List, references: List) -> Tuple[List, List]:
+    def convert(self, dataset: Dataset, logits: Tuple[List, List], references: Tuple[List, List]) -> Tuple[List, List]:
         all_start_logits, all_end_logits = logits
+        # Logits: [T, Seq]
 
         # If data arrives as [1, X] instead of [X]
         all_start_logits = [l_.flatten() for l_ in all_start_logits]
@@ -103,3 +107,34 @@ class SquadV2Converter(Converter):
                 final_preds.append(best_non_null_pred["text"])
 
         return final_preds, references
+
+
+class PredictionFlattener(Converter):
+    def convert(self, dataset: Dataset, logits: List[int], references: List[int]) -> Tuple[List, List]:
+        # Test evaluation returns references as a List[np.ndarray]] with one int each
+        if not isinstance(references[0], int):
+            references = np.array(references).flatten()
+
+        return logits, references
+
+
+class TupleTransposer(Converter):
+    def transpose(self, values) -> List:
+        num_entries = len(values[0])
+        lists = [[] for _ in range(num_entries)]
+        for j in range(num_entries):
+            for i in range(len(values)):
+                lists[j].append(values[i][j])
+
+        return lists
+
+    def convert(self, dataset: Dataset, logits: List, references: List) -> Tuple[List, List]:
+        if isinstance(logits[0], list):
+            logits = self.transpose(logits)
+
+        if isinstance(references[0], list):
+            references = self.transpose(references)
+
+        # Logits: N arrays of [T, Seq]
+        # References: N arrays of [T, L] where L is whatever suits (e.g. 1 for SQuAD)
+        return logits, references

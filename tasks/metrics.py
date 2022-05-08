@@ -1,5 +1,5 @@
 import abc
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 from datasets import load_metric, Dataset
@@ -18,7 +18,8 @@ class NERComputer(MetricComputer):
     def __init__(self):
         self.metric = load_metric("seqeval", cache_dir=CACHE_DIR)
 
-    def compute_metrics(self, dataset: Dataset, predictions: List, references: List) -> Dict[str, float]:
+    def compute_metrics(self, dataset: Dataset, predictions: List[List[str]],
+                        references: List[List[str]]) -> Dict[str, float]:
         computed_metrics = self.metric.compute(predictions=predictions, references=references)
 
         return {
@@ -33,8 +34,9 @@ class ClassificationComputer(MetricComputer):
     def __init__(self):
         self.accuracy_metric = load_metric("accuracy", cache_dir=CACHE_DIR)
 
-    def compute_metrics(self, dataset: Dataset, predictions: List, references: List) -> Dict[str, float]:
+    def compute_metrics(self, dataset: Dataset, predictions: List[int], references: List[int]) -> Dict[str, float]:
         accuracy = self.accuracy_metric.compute(predictions=predictions, references=references)['accuracy']
+
         return {
             "accuracy": accuracy,
             "error": 1 - accuracy,
@@ -42,10 +44,11 @@ class ClassificationComputer(MetricComputer):
 
 
 class AccuracyComputer(MetricComputer):
-    def compute_metrics(self, dataset: Dataset, predictions: List, references: List) -> Dict[str, float]:
-        preds = np.argmax(predictions, axis=1)
+    def compute_metrics(self, dataset: Dataset, predictions: List[int], references: List[int]) -> Dict[str, float]:
+        accuracy = (predictions == references).astype(np.float32).mean().item()
+
         return {
-            "accuracy": (preds == references).astype(np.float32).mean().item()
+            "accuracy": accuracy
         }
 
 
@@ -53,7 +56,8 @@ class SquadV2Computer(MetricComputer):
     def __init__(self):
         self.squad_v2_metric = load_metric("squad_v2")
 
-    def compute_metrics(self, dataset: Dataset, predictions: List, references: List) -> Dict[str, float]:
+    def compute_metrics(self, dataset: Dataset, predictions: List[str], references: Tuple[List, List]) -> Dict[str, float]:
+        # References: two lists of ints
         predictions = [{
             "id": i,
             "prediction_text": predictions[i],

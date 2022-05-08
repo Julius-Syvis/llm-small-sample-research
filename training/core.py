@@ -55,20 +55,22 @@ class TrainSequencer:
                      f"on {self.model_factory.model_hub_name} "
                      f"with {self.task.hub_dataset_name}..")
 
+        logging.info("Preparing cross validation sets..")
+        dataset_dict = self.task.get_loaded_dataset(self.task.validation_col,
+                                                    self.task.test_col, self.task.split_by_col)
+
+        logging.info("Preparing specified-size dataset..")
+        if self.train_config.do_test_overfit or self.train_config.do_test_loop:
+            dataset_dict = prepare_test_dsd(dataset_dict)
+        else:
+            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
+                                       self.train_config.custom_train_sample_count)
+
         logging.info("Loading tokenizer..")
         tokenizer = self.model_factory.load_tokenizer()
 
         logging.info("Tokenizing dataset..")
-        dataset_dict = self.task.tokenize(tokenizer, self.task.validation_col,
-                                          self.task.test_col, self.task.split_by_col)
-
-        if self.train_config.do_test_overfit or self.train_config.do_test_loop:
-            logging.info("Preparing test dataset..")
-            dataset_dict = prepare_test_dsd(dataset_dict)
-        else:
-            logging.info("Preparing full dataset..")
-            dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
-                                       self.train_config.custom_train_sample_count)
+        dataset_dict = self.task.tokenize(tokenizer, dataset_dict)
 
         logging.info(f'Prepared dataset with '
                      f'{len(dataset_dict["train"])}, '
@@ -105,11 +107,12 @@ class TrainSequencer:
             logging.info(f"Training..")
             train_output = trainer.train()
             if self.train_config.do_save:
-                logging.info(f"Saving best model..")
-                model.save_pretrained(self._get_checkpoints_path(run_id) / "BEST")
-
                 if self.train_config.delete_after_save:
+                    logging.info(f"Deleting all models..")
                     shutil.rmtree(self._get_checkpoints_path(run_id))
+                else:
+                    logging.info(f"Saving best model..")
+                    model.save_pretrained(self._get_checkpoints_path(run_id) / "BEST")
 
         if "test" in dataset_dict:
             logging.info(f"Running evaluation..")
@@ -230,19 +233,7 @@ class TrainSequencer:
 
     def _compute_metrics(self, dataset: Dataset, metric_holder: MetricHolder, evaluations: Dict[str, List],
                          train_output: Optional[TrainOutput]) -> Dict[str, float]:
-        def T(values):
-            num_entries = len(values[0])
-            lists = [[] for _ in range(num_entries)]
-            for j in range(num_entries):
-                for i in range(len(values)):
-                    lists[j].append(values[i][j])
-
-            return lists
-
-        logits = T(evaluations["logits"]) if isinstance(evaluations["logits"][0], list) else evaluations["logits"]
-        labels = T(evaluations["labels"]) if isinstance(evaluations["labels"][0], list) else evaluations["labels"]
-
-        metrics = metric_holder.compute_metrics(dataset, logits, labels)
+        metrics = metric_holder.compute_metrics(dataset, evaluations["logits"], evaluations["labels"])
         metrics["test_loss"] = np.mean(evaluations["loss"])
 
         if train_output is not None:
@@ -263,7 +254,7 @@ class TrainSequencer:
         df_evals = pd.DataFrame(evaluations)
         df_path = self._get_outputs_path(run_id)
         os.makedirs(df_path, exist_ok=True)
-        df_evals.to_csv(df_path / f"evals.tsv", sep="\t")
+        df_evals.to_csv(df_path / f"evals.tsv", sep="\t", index=False)
 
         # Save metrics to:
         # .results/outputs/{ID}/{task}/metrics.tsv
@@ -325,6 +316,6 @@ class TrainSequencer:
         callbacks = []
 
         if not self.train_config.do_test_overfit and self.train_config.do_save:
-            callbacks.append(EarlyStoppingCallback(5, 0.0))
+            callbacks.append(EarlyStoppingCallback(10, 0.0))
 
         return callbacks

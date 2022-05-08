@@ -11,10 +11,10 @@ from transformers import PreTrainedTokenizerBase, BatchEncoding, DataCollatorFor
 from models import CACHE_DIR
 from models.core import ModelFactory
 from tasks.collators import DataCollatorForMultipleChoice
-from tasks.converters import CoNLLConverter, ClassificationConverter, SquadV2Converter
+from tasks.converters import CoNLLConverter, ClassificationConverter, SquadV2Converter, PredictionFlattener, \
+    TupleTransposer
 from tasks.metrics import MetricHolder, ClassificationComputer, AccuracyComputer, NERComputer, SquadV2Computer
 from utils.data_utils import prepare_cross_validation
-from utils.seed_utils import SEED
 
 
 class Task(abc.ABC):
@@ -68,15 +68,15 @@ class Task(abc.ABC):
                 ds = ds.add_column(kept_col, prepared_dataset[key][kept_col])
             tokenized_dataset[key] = ds
 
-    def tokenize(self, tokenizer: PreTrainedTokenizerBase, validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test", split_by_col: Optional[str] = None) -> DatasetDict:
-        prepared_dataset = prepare_cross_validation(self.loaded_dataset, validation_col, test_col, split_by_col)
-        prepared_dataset = prepared_dataset.shuffle(seed=SEED)
+    def get_loaded_dataset(self, validation_col: Optional[str] = "validation", test_col: Optional[str] = "test",
+                           split_by_col: Optional[str] = None) -> DatasetDict:
+        return prepare_cross_validation(self.loaded_dataset, validation_col, test_col, split_by_col)
 
-        tokenized_dataset = prepared_dataset.map(
+    def tokenize(self, tokenizer: PreTrainedTokenizerBase, dataset: DatasetDict) -> DatasetDict:
+        tokenized_dataset = dataset.map(
             partial(self._tokenize_and_align_labels, tokenizer),
             batched=True,
-            remove_columns=set(self.loaded_dataset["train"].column_names) - {'label'},
+            remove_columns=set(dataset["train"].column_names) - {'label'},
             desc="Tokenizing dataset"
         )
 
@@ -220,7 +220,12 @@ class MultipleChoiceTask(Task):
             AccuracyComputer()
         ]
 
-        return MetricHolder(metrics)
+        converters = [
+            ClassificationConverter(),
+            PredictionFlattener()
+        ]
+
+        return MetricHolder(metrics, converters)
 
     def get_model_loader(self, model_factory: ModelFactory) -> Callable[[], PreTrainedModel]:
         return model_factory.load_multiple_choice_model
@@ -248,7 +253,8 @@ class SequenceClassificationTask(Task):
         ]
 
         converters = [
-            ClassificationConverter()
+            ClassificationConverter(),
+            PredictionFlattener()
         ]
 
         return MetricHolder(metrics, converters)
@@ -331,7 +337,8 @@ class ExtractiveQuestionAnsweringTask(Task):
         ]
 
         converters = [
-            SquadV2Converter()
+            TupleTransposer(),
+            SquadV2Converter(),
         ]
 
         return MetricHolder(metrics, converters)
