@@ -1,7 +1,7 @@
 import abc
 from functools import partial
 from itertools import chain
-from typing import List, Optional, Callable, Generator
+from typing import List, Optional, Callable, Set
 
 from datasets import load_dataset, DatasetDict
 from datasets.arrow_dataset import Batch
@@ -11,8 +11,9 @@ from transformers import PreTrainedTokenizerBase, BatchEncoding, DataCollatorFor
 from models import CACHE_DIR
 from models.core import ModelFactory
 from tasks.collators import DataCollatorForMultipleChoice
-from tasks.metrics import MetricHolder, ClassificationComputer, conll_converter, AccuracyComputer, \
-    classification_converter, NERComputer
+from tasks.converters import CoNLLConverter, ClassificationConverter, SquadV2Converter
+from tasks.metrics import MetricHolder, ClassificationComputer, AccuracyComputer, NERComputer, SquadV2Computer
+from utils.data_utils import prepare_cross_validation
 
 
 class Task(abc.ABC):
@@ -20,13 +21,17 @@ class Task(abc.ABC):
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
                  track_metric: Optional[str] = None,
-                 greater_is_better: bool = True):
+                 greater_is_better: bool = True,
+                 split_by_col: Optional[str] = None,
+                 kept_cols: Optional[Set[str]] = None):
         self.hub_dataset_name: str = hub_dataset_name
         self.validation_col = validation_col
         self.test_col = test_col
         self.track_metric = track_metric
         self.greater_is_better = greater_is_better
-        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR)
+        self.split_by_col = split_by_col
+        self.kept_cols = kept_cols if kept_cols else {}
+        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR, keep_in_memory=False)
 
     @abc.abstractmethod
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
@@ -40,13 +45,41 @@ class Task(abc.ABC):
     def load_metric_holder(self) -> MetricHolder:
         raise NotImplementedError
 
-    def tokenize(self, tokenizer: PreTrainedTokenizerBase) -> DatasetDict:
-        return self.loaded_dataset.map(
+    def map_batch(self, kept_col: str, batch: Batch):
+        len_ = len(next(iter(batch.values())))
+
+        vals = []
+        for i in range(len_):
+            i_vals = [batch[key][i] for key in batch.data.keys()]
+            i_lens = [len(i_val) if isinstance(i_val, list) else 1 for i_val in i_vals]
+            max_len = max(i_lens)
+            print(max_len)
+
+            vals += [batch.data[kept_col][i]] * max_len
+
+        return {'kept_col': vals}
+
+    def add_kept_col_from_untokenized_dataset(self, prepared_dataset: DatasetDict, tokenized_dataset: DatasetDict):
+        for key in prepared_dataset:
+            ds = tokenized_dataset[key]
+            for kept_col in self.kept_cols:
+                # col = prepared_dataset[key].flatten().map(partial(map_batch, kept_col),
+                #                        batched=True, remove_columns=prepared_dataset[key].flatten().column_names)
+                ds = ds.add_column(kept_col, prepared_dataset[key][kept_col])
+            tokenized_dataset[key] = ds
+
+    def tokenize(self, tokenizer: PreTrainedTokenizerBase, validation_col: Optional[str] = "validation",
+                 test_col: Optional[str] = "test", split_by_col: Optional[str] = None) -> DatasetDict:
+        prepared_dataset = prepare_cross_validation(self.loaded_dataset, validation_col, test_col, split_by_col)
+
+        tokenized_dataset = prepared_dataset.map(
             partial(self._tokenize_and_align_labels, tokenizer),
             batched=True,
             remove_columns=set(self.loaded_dataset["train"].column_names) - {'label'},
             desc="Tokenizing dataset"
         )
+
+        return tokenized_dataset
 
     def get_model_loader(self, model_factory: ModelFactory) -> Callable[[], PreTrainedModel]:
         raise NotImplementedError
@@ -54,12 +87,8 @@ class Task(abc.ABC):
 
 # https://huggingface.co/course/chapter7/2?fw=pt
 class NERTask(Task):
-    def __init__(self, hub_dataset_name: str,
-                 validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None,
-                 greater_is_better: bool = True):
-        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _align_labels_with_tokens(self, labels: List[int], word_ids: List[Optional[int]]):
         new_labels = []
@@ -100,13 +129,14 @@ class NERTask(Task):
                 if label % 2 == 1:
                     label += 1
 
-
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         if tokenizer.is_character_level:
             concatenated_tokens = [' '.join(e) for e in examples.data['tokens']]
-            tokenized_inputs = tokenizer(concatenated_tokens, truncation=True, is_split_into_words=False)
+            tokenized_inputs = tokenizer(concatenated_tokens, truncation=True, is_split_into_words=False,
+                                         max_length=tokenizer.max_sequence_length)
         else:
-            tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+            tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True,
+                                         max_length=tokenizer.max_sequence_length)
 
         all_labels = examples["ner_tags"]
         new_labels = []
@@ -135,7 +165,7 @@ class NERTask(Task):
         ]
 
         converters = [
-            partial(conll_converter, self._get_label_names())
+            CoNLLConverter(self._get_label_names())
         ]
 
         return MetricHolder(metrics, converters)
@@ -149,12 +179,8 @@ class NERTask(Task):
 
 # https://github.com/huggingface/transformers/tree/main/examples/pytorch/multiple-choice
 class MultipleChoiceTask(Task):
-    def __init__(self, hub_dataset_name: str,
-                 validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None,
-                 greater_is_better: bool = True):
-        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         ending_names = [f"ending{i}" for i in range(4)]
@@ -176,7 +202,7 @@ class MultipleChoiceTask(Task):
             first_sentences,
             second_sentences,
             truncation=True,
-            max_length=512,  # No matter what, the max length is always 512
+            max_length=tokenizer.max_sequence_length,
             padding=False,
         )
 
@@ -201,18 +227,14 @@ class MultipleChoiceTask(Task):
 
 # https://github.com/huggingface/transformers/tree/main/examples/pytorch/text-classification
 class SequenceClassificationTask(Task):
-    def __init__(self, hub_dataset_name: str,
-                 validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None,
-                 greater_is_better: bool = True):
-        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         return tokenizer(
             examples['text'],
             truncation=True,
-            max_length=512,  # No matter what, the max length is always 512
+            max_length=tokenizer.max_sequence_length,
             padding=False,
         )
 
@@ -225,7 +247,7 @@ class SequenceClassificationTask(Task):
         ]
 
         converters = [
-            partial(classification_converter, self._get_label_names())
+            ClassificationConverter()
         ]
 
         return MetricHolder(metrics, converters)
@@ -240,24 +262,81 @@ class SequenceClassificationTask(Task):
 
 # https://github.com/huggingface/transformers/tree/main/examples/pytorch/question-answering
 class ExtractiveQuestionAnsweringTask(Task):
-    def __init__(self, hub_dataset_name: str,
-                 validation_col: Optional[str] = "validation",
-                 test_col: Optional[str] = "test",
-                 track_metric: Optional[str] = None,
-                 greater_is_better: bool = True):
-        super().__init__(hub_dataset_name, validation_col, test_col, track_metric)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs, kept_cols={"question"})
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
-        pass
+        tokenized_examples = tokenizer(
+            examples['question'],
+            examples['context'],
+            truncation="only_second",
+            return_offsets_mapping=True,
+            max_length=tokenizer.max_sequence_length,
+            padding=False,
+        )
+
+        tokenized_examples["start_positions"] = []
+        tokenized_examples["end_positions"] = []
+        tokenized_examples["context"] = examples["context"]
+        tokenized_examples["answers"] = examples["answers"]
+
+        # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
+        for i, offsets in enumerate(tokenized_examples["offset_mapping"]):  # Pairs of (i, ith_token_offset)
+            input_ids = tokenized_examples["input_ids"][i]
+            cls_token_index = input_ids.index(tokenizer.cls_token_id)  # Just 0
+
+            seq_ids = tokenized_examples.sequence_ids(i)  # 0s for question, None for [sep] and [cls], 1s for context
+            answers = examples["answers"][i]
+
+            if len(answers["answer_start"]) == 0:
+                # If no answers are given, the correct label is first [cls] token
+                tokenized_examples["start_positions"].append(cls_token_index)
+                tokenized_examples["end_positions"].append(cls_token_index)
+            else:
+                # We have a single answer
+                start_char = answers["answer_start"][0]
+                end_char = start_char + len(answers["text"][0])
+
+                start_of_context_token_idx = seq_ids.index(1)
+                end_of_context_token_idx = len(seq_ids) - list(reversed(seq_ids)).index(1) - 1
+
+                if not (offsets[start_of_context_token_idx][0] <= start_char
+                        and offsets[end_of_context_token_idx][1] >= end_char):
+                    # The required span is not in overflow
+                    tokenized_examples["start_positions"].append(cls_token_index)
+                    tokenized_examples["end_positions"].append(cls_token_index)
+                else:
+                    # The required span is in the overflow
+
+                    # Pick first token that contains the required span
+                    fitting_tokens = [i for (i, (from_, to_)) in enumerate(offsets) if (i >= start_of_context_token_idx
+                                                                                        and from_ >= start_char)]
+                    start_token_index = min(len(offsets), fitting_tokens[0])
+                    tokenized_examples["start_positions"].append(start_token_index)
+
+                    # Pick last token that contains the required span
+                    end_token_index = [i for (i, (from_, to_)) in enumerate(offsets) if (i < end_of_context_token_idx
+                                                                                         and to_ <= end_char)][-1]
+                    tokenized_examples["end_positions"].append(end_token_index)
+
+        return tokenized_examples
 
     def load_data_collator(self, tokenizer: PreTrainedTokenizerBase) -> DataCollator:
-        pass
+        return DataCollatorWithPadding(tokenizer, padding="longest")
 
     def load_metric_holder(self) -> MetricHolder:
-        pass
+        metrics = [
+            SquadV2Computer()
+        ]
+
+        converters = [
+            SquadV2Converter()
+        ]
+
+        return MetricHolder(metrics, converters)
 
     def get_model_loader(self, model_factory: ModelFactory) -> Callable[[], PreTrainedModel]:
-        pass
+        return model_factory.load_question_answering_model
 
 
 def get_conll_2003() -> NERTask:
@@ -266,7 +345,7 @@ def get_conll_2003() -> NERTask:
 
 def get_swag() -> MultipleChoiceTask:
     # Ignore test col because it contains -1 labels
-    return MultipleChoiceTask("swag", test_col=None, track_metric="accuracy")
+    return MultipleChoiceTask("swag", test_col=None, track_metric="accuracy", split_by_col="video-id")
 
 
 def get_ag_news() -> SequenceClassificationTask:
@@ -274,8 +353,8 @@ def get_ag_news() -> SequenceClassificationTask:
 
 
 def get_squad_v2() -> ExtractiveQuestionAnsweringTask:
-    return ExtractiveQuestionAnsweringTask("squad_v2", test_col=None)
+    return ExtractiveQuestionAnsweringTask("squad_v2", test_col=None, split_by_col="context", track_metric="f1")
 
 
-def get_supported_tasks() -> Generator[Callable[[], Task], None, None]:
-    return iter([get_conll_2003, get_swag, get_ag_news])
+def get_supported_tasks() -> List[Task]:
+    return [get_conll_2003(), get_swag(), get_ag_news()]

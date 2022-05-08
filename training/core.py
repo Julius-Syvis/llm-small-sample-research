@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Generator
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -37,12 +37,8 @@ class MultipleTrainSequencer:
     def train(self):
         setup_logging(self.train_config)
 
-        for mf in self.model_factories:
-            model_factory = mf()
-
-            for t in self.tasks:
-                task = t()
-
+        for model_factory in self.model_factories:
+            for task in self.tasks:
                 sequencer = TrainSequencer(model_factory, task, self.train_config)
                 sequencer.train()
 
@@ -63,16 +59,16 @@ class TrainSequencer:
         tokenizer = self.model_factory.load_tokenizer()
 
         logging.info("Tokenizing dataset..")
-        dataset_dict = self.task.tokenize(tokenizer)
+        dataset_dict = self.task.tokenize(tokenizer, self.task.validation_col,
+                                          self.task.test_col, self.task.split_by_col)
 
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
             logging.info("Preparing test dataset..")
-            dataset_dict = prepare_test_dsd(dataset_dict, self.task.validation_col, self.task.test_col)
+            dataset_dict = prepare_test_dsd(dataset_dict)
         else:
             logging.info("Preparing full dataset..")
             dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
-                                       self.train_config.custom_train_sample_count,
-                                       self.task.validation_col, self.task.test_col)
+                                       self.train_config.custom_train_sample_count)
 
         logging.info("Shuffling..")
         dataset_dict = shuffle_ds(dataset_dict)
@@ -115,7 +111,7 @@ class TrainSequencer:
             evaluations = self._evaluate_dataset(trainer, dataset_dict["test"])
 
             logging.info(f"Computing metrics..")
-            metrics = self._compute_metrics(metric_holder, evaluations, train_output)
+            metrics = self._compute_metrics(dataset_dict["test"], metric_holder, evaluations, train_output)
 
             logging.info(f"Saving results..")
             self._save_results(metrics, evaluations, run_id)
@@ -123,6 +119,7 @@ class TrainSequencer:
     def _get_trainer(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
                      dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int) -> Trainer:
         max_steps, eval_steps = self._get_step_counts()
+        logging_steps = eval_steps if eval_steps % 2 != 0 else eval_steps / 2
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
@@ -141,7 +138,7 @@ class TrainSequencer:
             metric_for_best_model=self.task.track_metric,
             greater_is_better=self.task.greater_is_better,
 
-            logging_steps=eval_steps,
+            logging_steps=logging_steps,
             logging_dir=self._get_logs_path(run_id),  # save to .results/logs/{ID}/{task}/{model}/{ID}/
             log_level='error',
             report_to="tensorboard",
@@ -175,15 +172,20 @@ class TrainSequencer:
             args=training_args,
             data_collator=data_collator,
             train_dataset=dataset_dict["train"],
-            eval_dataset=dataset_dict["validation"] if "validation" in dataset_dict else None,
-            compute_metrics=lambda metrics: metric_holder.compute_metrics(metrics.predictions, metrics.label_ids),
+            eval_dataset=dataset_dict["validation"],
+            compute_metrics=lambda metrics: metric_holder.compute_metrics(dataset_dict["validation"],
+                                                                          metrics.predictions, metrics.label_ids),
             callbacks=self._get_callbacks(),
         )
 
         return trainer
 
     def _evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
-        dataset = DataLoader(
+        removed_columns = set(dataset.column_names) - {'input_ids', 'attention_mask', 'token_type_ids',
+                                                       'start_positions', 'end_positions'}
+        dataset = dataset.remove_columns(removed_columns)
+
+        data_loader = DataLoader(
             dataset,
             sampler=trainer._get_eval_sampler(dataset),
             batch_size=1,
@@ -192,16 +194,22 @@ class TrainSequencer:
             pin_memory=trainer.args.dataloader_pin_memory
         )
 
-        dataset = trainer._prepare_inputs(dataset)
+        data_loader = trainer._prepare_inputs(data_loader)
 
         def get_entry_loss(entry):
             return trainer.prediction_step(trainer.model, entry, prediction_loss_only=False)
 
         # map() Calls iter() on dataset automatically
-        losses, logits, labels = list(zip(*list(map(get_entry_loss, dataset))))
+        losses, logits, labels = list(zip(*list(map(get_entry_loss, data_loader))))
 
         def get_decoded_sentences(entry):
-            input_ids = entry['input_ids'][0]
+            input_ids = entry['input_ids']
+
+            if isinstance(input_ids, list):
+                input_ids = np.array(input_ids)
+            else:
+                input_ids = input_ids[0]
+
             if len(input_ids.shape) == 2:
                 return [trainer.tokenizer.decode(input_row) for input_row in input_ids]
             else:
@@ -212,13 +220,15 @@ class TrainSequencer:
         return {
             "loss": torch.stack(losses).cpu().numpy(),
             "logits": list(map(lambda x: x[0].cpu().numpy(), logits)),
-            "labels": list(map(lambda x: x.flatten().cpu().numpy(), labels)),
+            "labels": list(map(lambda x: (x[0].cpu().numpy(), x[1].cpu().numpy()), labels)) \
+                if isinstance(labels[0], tuple) \
+                else list(map(lambda x: x.flatten().cpu().numpy(), labels)),
             "sentences": sentences,
         }
 
-    def _compute_metrics(self, metric_holder: MetricHolder, evaluations: Dict[str, List],
+    def _compute_metrics(self, dataset: Dataset, metric_holder: MetricHolder, evaluations: Dict[str, List],
                          train_output: Optional[TrainOutput]) -> Dict[str, float]:
-        metrics = metric_holder.compute_metrics(evaluations["logits"], evaluations["labels"])
+        metrics = metric_holder.compute_metrics(dataset, evaluations["logits"], evaluations["labels"])
         metrics["test_loss"] = np.mean(evaluations["loss"])
 
         if train_output is not None:
@@ -274,13 +284,28 @@ class TrainSequencer:
     def _get_base_path(self, run_id: int, metrics_path: bool = False):
         return get_base_path(self.train_config, self.task, self.model_factory, run_id, metrics_path)
 
-    def _get_step_counts(self):
-        if self.train_config.do_test_overfit:
-            return 250, 50
+    def _get_max_step(self) -> int:
+        if self.train_config.custom_max_step:
+            return self.train_config.custom_max_step
+        elif self.train_config.do_test_overfit:
+            return 250
         elif self.train_config.do_test_loop:
-            return 1, 1
+            return 1
         else:
-            return 2_000, 50
+            return 2_000
+
+    def _get_eval_step(self) -> int:
+        if self.train_config.custom_eval_step:
+            return self.train_config.custom_eval_step
+        elif self.train_config.do_test_overfit:
+            return 50
+        elif self.train_config.do_test_loop:
+            return 1
+        else:
+            return 50
+
+    def _get_step_counts(self):
+        return self._get_max_step(), self._get_eval_step()
 
     def _get_callbacks(self):
         callbacks = []

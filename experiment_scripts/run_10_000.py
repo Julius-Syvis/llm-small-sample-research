@@ -8,7 +8,9 @@ if __name__ == "__main__":
                                            do_train=True,
                                            do_few_sample=True,
 
+                                           custom_train_sample_count=100,
+
                                            delete_after_save=True,
                                            batch_size_multiplier=4,
-                                           experiment_name=f"full_samples"))
+                                           experiment_name=f"10_000_samples"))
     sequencer.train()

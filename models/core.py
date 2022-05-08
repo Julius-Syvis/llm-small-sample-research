@@ -1,10 +1,9 @@
 from typing import List, Generator, Callable
 
 from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, AutoModelForTokenClassification, \
-    AutoTokenizer, AutoModelForMultipleChoice, AutoModelForSequenceClassification
+    AutoTokenizer, AutoModelForMultipleChoice, AutoModelForSequenceClassification, AutoModelForQuestionAnswering
 
 from models import CACHE_DIR
-
 
 class ModelFactory:
     def __init__(self, model_hub_name, is_character_level=False):
@@ -19,6 +18,7 @@ class ModelFactory:
         )
 
         tokenizer.is_character_level = self.is_character_level
+        tokenizer.max_sequence_length = 2048 if self.is_character_level else 512
 
         return tokenizer
 
@@ -68,6 +68,15 @@ class ModelFactory:
         model = model.cuda()
         return model
 
+    def load_question_answering_model(self) -> PreTrainedModel:
+        model = AutoModelForQuestionAnswering.from_pretrained(
+            self.model_hub_name,
+            cache_dir=CACHE_DIR
+        )
+
+        model = model.cuda()
+        return model
+
 
 def get_bert_base() -> ModelFactory:
     return ModelFactory("bert-base-cased")
@@ -110,6 +119,6 @@ def get_xlm() -> ModelFactory:
     return ModelFactory("xlm-roberta-base")
 
 
-def get_supported_model_factories() -> Generator[Callable[[], ModelFactory], None, None]:
-    return iter([get_bert_base, get_bert_base_uncased, get_roberta_base,
-                 get_electra_base, get_big_bird, get_xlm])
+def get_supported_model_factories() -> List[ModelFactory]:
+    return [get_bert_base(), get_bert_base_uncased(), get_roberta_base(),
+            get_electra_base(), get_big_bird(), get_xlm()]
