@@ -14,6 +14,7 @@ from tasks.collators import DataCollatorForMultipleChoice
 from tasks.converters import CoNLLConverter, ClassificationConverter, SquadV2Converter
 from tasks.metrics import MetricHolder, ClassificationComputer, AccuracyComputer, NERComputer, SquadV2Computer
 from utils.data_utils import prepare_cross_validation
+from utils.seed_utils import SEED
 
 
 class Task(abc.ABC):
@@ -53,7 +54,6 @@ class Task(abc.ABC):
             i_vals = [batch[key][i] for key in batch.data.keys()]
             i_lens = [len(i_val) if isinstance(i_val, list) else 1 for i_val in i_vals]
             max_len = max(i_lens)
-            print(max_len)
 
             vals += [batch.data[kept_col][i]] * max_len
 
@@ -71,6 +71,7 @@ class Task(abc.ABC):
     def tokenize(self, tokenizer: PreTrainedTokenizerBase, validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test", split_by_col: Optional[str] = None) -> DatasetDict:
         prepared_dataset = prepare_cross_validation(self.loaded_dataset, validation_col, test_col, split_by_col)
+        prepared_dataset = prepared_dataset.shuffle(seed=SEED)
 
         tokenized_dataset = prepared_dataset.map(
             partial(self._tokenize_and_align_labels, tokenizer),

@@ -41,6 +41,11 @@ class ClassificationConverter(Converter):
 class SquadV2Converter(Converter):
     def convert(self, dataset: Dataset, logits: List, references: List) -> Tuple[List, List]:
         all_start_logits, all_end_logits = logits
+
+        # If data arrives as [1, X] instead of [X]
+        all_start_logits = [l_.flatten() for l_ in all_start_logits]
+        all_end_logits = [l_.flatten() for l_ in all_end_logits]
+
         offset_mapping = dataset['offset_mapping']
 
         final_preds = []
@@ -61,21 +66,21 @@ class SquadV2Converter(Converter):
 
                     preds.append({
                         "offsets": (offset_mapping[i][start_idx][0], offset_mapping[i][end_idx][1]),
-                        "score": all_start_logits[i, start_idx] + all_end_logits[i, end_idx],
-                        "start_logit": all_start_logits[i, start_idx],
-                        "end_logit": all_end_logits[i, end_idx]
+                        "score": all_start_logits[i][start_idx] + all_end_logits[i][end_idx],
+                        "start_logit": all_start_logits[i][start_idx],
+                        "end_logit": all_end_logits[i][end_idx]
                     })
 
             # Pick best n options, add null option
             preds = sorted(preds, key=lambda x: x["score"], reverse=True)[:20]
 
             # Add 0 entry
-            null_score = all_start_logits[i, 0] + all_end_logits[i, 0]
+            null_score = all_start_logits[i][0] + all_end_logits[i][0]
             preds.append({
                 "offsets": (0, 0),
                 "score": null_score,
-                "start_logit": all_start_logits[i, 0],
-                "end_logit": all_end_logits[i, 0],
+                "start_logit": all_start_logits[i][0],
+                "end_logit": all_end_logits[i][0],
             })
 
             scores = np.array([pred["score"] for pred in preds])

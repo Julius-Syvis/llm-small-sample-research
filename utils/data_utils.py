@@ -1,7 +1,9 @@
+from functools import partial
 from typing import Union, Optional
 
 import pandas as pd
 from datasets import Dataset, DatasetDict
+from datasets.arrow_dataset import Batch
 
 from utils.seed_utils import SEED
 
@@ -38,18 +40,23 @@ def prepare_cross_validation(dsd: DatasetDict, validation_col: Optional[str],
                     test_sum += value_count
                     test_cols.append(name)
 
+            def pick_cols(cols, batch: Batch):
+                needed_idxs = [value in cols for value in batch.data[split_by_col]]
+                data = {k: [v_ for (i_, v_) in enumerate(v) if needed_idxs[i_]] for k, v in batch.items()}
+                return Batch(data)
+
             # Order matters here:
-            test_ds = val_ds.filter(lambda x: x[split_by_col] in test_cols)
-            val_ds = val_ds.filter(lambda x: x[split_by_col] in val_cols)
+            test_ds = val_ds.map(partial(pick_cols, test_cols), batched=True)
+            val_ds = val_ds.map(partial(pick_cols, val_cols), batched=True)
         else:
             split_subset = val_ds.train_test_split(0.5, 0.5, seed=SEED)
             val_ds = split_subset["train"]
             test_ds = split_subset["test"]
 
     return DatasetDict({
-        "train": dsd['train'].train_test_split(1000)["test"],
-        "validation": val_ds.train_test_split(1000)["test"],
-        "test": test_ds.train_test_split(1000)["test"]
+        "train": dsd['train'],
+        "validation": val_ds,
+        "test": test_ds
     })
 
 

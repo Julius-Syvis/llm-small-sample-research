@@ -61,6 +61,10 @@ class TrainSequencer:
         logging.info("Tokenizing dataset..")
         dataset_dict = self.task.tokenize(tokenizer, self.task.validation_col,
                                           self.task.test_col, self.task.split_by_col)
+        logging.info(f'Prepared dataset with '
+                     f'{len(dataset_dict["train"])}, '
+                     f'{len(dataset_dict["validation"])}, '
+                     f'{len(dataset_dict["test"])} entries.')
 
         if self.train_config.do_test_overfit or self.train_config.do_test_loop:
             logging.info("Preparing test dataset..")
@@ -182,7 +186,7 @@ class TrainSequencer:
 
     def _evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
         removed_columns = set(dataset.column_names) - {'input_ids', 'attention_mask', 'token_type_ids',
-                                                       'start_positions', 'end_positions'}
+                                                       'start_positions', 'end_positions', 'label'}
         dataset = dataset.remove_columns(removed_columns)
 
         data_loader = DataLoader(
@@ -219,8 +223,10 @@ class TrainSequencer:
 
         return {
             "loss": torch.stack(losses).cpu().numpy(),
-            "logits": list(map(lambda x: x[0].cpu().numpy(), logits)),
-            "labels": list(map(lambda x: (x[0].cpu().numpy(), x[1].cpu().numpy()), labels)) \
+            "logits": list(map(lambda x: [x_.cpu().numpy() for x_ in x], logits)) \
+                if isinstance(logits[0], tuple) \
+                else list(map(lambda x: x[0].cpu().numpy(), logits)),
+            "labels": list(map(lambda x: [x_.cpu().numpy() for x_ in x], labels)) \
                 if isinstance(labels[0], tuple) \
                 else list(map(lambda x: x.flatten().cpu().numpy(), labels)),
             "sentences": sentences,
@@ -228,7 +234,19 @@ class TrainSequencer:
 
     def _compute_metrics(self, dataset: Dataset, metric_holder: MetricHolder, evaluations: Dict[str, List],
                          train_output: Optional[TrainOutput]) -> Dict[str, float]:
-        metrics = metric_holder.compute_metrics(dataset, evaluations["logits"], evaluations["labels"])
+        def T(values):
+            num_entries = len(values[0])
+            lists = [[] for _ in range(num_entries)]
+            for j in range(num_entries):
+                for i in range(len(values)):
+                    lists[j].append(values[i][j])
+
+            return lists
+
+        logits = T(evaluations["logits"]) if isinstance(evaluations["logits"][0], list) else evaluations["logits"]
+        labels = T(evaluations["labels"]) if isinstance(evaluations["labels"][0], list) else evaluations["labels"]
+
+        metrics = metric_holder.compute_metrics(dataset, logits, labels)
         metrics["test_loss"] = np.mean(evaluations["loss"])
 
         if train_output is not None:
