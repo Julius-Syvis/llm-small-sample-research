@@ -187,7 +187,7 @@ class TrainSequencer:
 
     def _evaluate_dataset(self, trainer: Trainer, dataset: Dataset) -> Dict[str, List]:
         removed_columns = set(dataset.column_names) - {'input_ids', 'attention_mask', 'token_type_ids',
-                                                       'start_positions', 'end_positions', 'label'}
+                                                       'start_positions', 'end_positions', 'label', 'labels'}
         dataset = dataset.remove_columns(removed_columns)
 
         data_loader = DataLoader(
