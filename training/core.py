@@ -36,6 +36,7 @@ class MultipleTrainSequencer:
     @cleanup
     def train(self):
         setup_logging(self.train_config)
+        logging.info(f"MultipleTrainSequencer: {len(self.model_factories)} will be used with {len(self.tasks)} tasks.")
 
         for model_factory in self.model_factories:
             for task in self.tasks:

@@ -69,12 +69,14 @@ class SquadV2Converter(Converter):
                     if end_idx < start_idx or end_idx - start_idx + 1 > max_length:
                         continue
 
-                    preds.append({
-                        "offsets": (offset_mapping[i][start_idx][0], offset_mapping[i][end_idx][1]),
-                        "score": all_start_logits[i][start_idx] + all_end_logits[i][end_idx],
-                        "start_logit": all_start_logits[i][start_idx],
-                        "end_logit": all_end_logits[i][end_idx]
-                    })
+                    current_mapping = offset_mapping[i]
+                    if len(current_mapping) > start_idx and len(current_mapping) > end_idx:
+                        preds.append({
+                            "offsets": (current_mapping[start_idx][0], current_mapping[end_idx][1]),
+                            "score": all_start_logits[i][start_idx] + all_end_logits[i][end_idx],
+                            "start_logit": all_start_logits[i][start_idx],
+                            "end_logit": all_end_logits[i][end_idx]
+                        })
 
             # Add 0 entry
             null_score = all_start_logits[i][0] + all_end_logits[i][0]

@@ -58,12 +58,13 @@ class SquadV2Computer(MetricComputer):
 
     def compute_metrics(self, dataset: Dataset, predictions: List[str], references: Tuple[List, List]) -> Dict[str, float]:
         # References: two lists of ints
+        answers = dataset["answers"]
         predictions = [{
             "id": i,
             "prediction_text": predictions[i],
             "no_answer_probability": 0.0
         } for i in range(len(predictions))]
-        references = [{"id": i, "answers": dataset["answers"][i]} for i in range(len(predictions))]
+        references = [{"id": i, "answers": answers[i]} for i in range(len(predictions))]
 
         squad_metrics = self.squad_v2_metric.compute(predictions=predictions, references=references)
 
