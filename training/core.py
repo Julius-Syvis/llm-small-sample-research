@@ -128,7 +128,7 @@ class TrainSequencer:
     def _get_trainer(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, data_collator: DataCollator,
                      dataset_dict: DatasetDict, metric_holder: MetricHolder, run_id: int) -> Trainer:
         max_steps, eval_steps = self._get_step_counts()
-        logging_steps = eval_steps if eval_steps % 2 != 0 else eval_steps / 2
+        logging_steps = eval_steps if eval_steps % 2 != 0 else eval_steps // 2
         eval_strategy = "steps" if "validation" in dataset_dict else "no"
 
         training_args = TrainingArguments(
