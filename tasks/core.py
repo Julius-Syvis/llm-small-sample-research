@@ -273,6 +273,9 @@ class ExtractiveQuestionAnsweringTask(Task):
         super().__init__(*args, **kwargs, kept_cols={"question"})
 
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
+        # Some questions contain long \n\n\n\n\n... sequences on the left
+        examples["question"] = [q.lstrip() for q in examples["question"]]
+
         tokenized_examples = tokenizer(
             examples['question'],
             examples['context'],
