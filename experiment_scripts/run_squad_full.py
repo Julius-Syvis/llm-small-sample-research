@@ -1,4 +1,4 @@
-from models.core import get_xlm, get_roberta_base, get_big_bird, get_electra_base
+from models.core import get_xlm, get_roberta_base, get_big_bird, get_electra_base, get_supported_model_factories
 from tasks.core import get_squad_v2
 from training.core import TrainConfig, MultipleTrainSequencer
 
