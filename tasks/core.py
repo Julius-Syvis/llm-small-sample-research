@@ -31,7 +31,7 @@ class Task(abc.ABC):
         self.track_metric = track_metric
         self.greater_is_better = greater_is_better
         self.split_by_col = split_by_col
-        self.kept_cols = kept_cols if kept_cols else {}
+        self.kept_cols = kept_cols or {}
         self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR, keep_in_memory=False)
 
     @abc.abstractmethod
@@ -308,8 +308,7 @@ class ExtractiveQuestionAnsweringTask(Task):
                 start_of_context_token_idx = seq_ids.index(1)
                 end_of_context_token_idx = len(seq_ids) - list(reversed(seq_ids)).index(1) - 1
 
-                if not (offsets[start_of_context_token_idx][0] <= start_char
-                        and offsets[end_of_context_token_idx][1] >= end_char):
+                if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx][1] < end_char:
                     # The required span is not in overflow
                     start_positions.append(cls_token_index)
                     end_positions.append(cls_token_index)

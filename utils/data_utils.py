@@ -74,7 +74,7 @@ def prepare_dsd(dsd: DatasetDict, few_sample: bool, custom_train_sample_count: O
     train_ds: Dataset = dsd['train']
 
     if few_sample:
-        train_sample_count = custom_train_sample_count if custom_train_sample_count else 1000
+        train_sample_count = custom_train_sample_count or 1000
         train_ds = train_ds.train_test_split(train_sample_count, seed=SEED)["test"]
 
     return DatasetDict({
