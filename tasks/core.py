@@ -289,12 +289,18 @@ class ExtractiveQuestionAnsweringTask(Task):
         end_positions = []
         contexts = []
         answers = []
+        input_ids = []
+        attention_masks = []
+        offset_mappings = []
 
-        def assign_entry(start_position, end_position, context, answer):
+        def assign_entry(start_position, end_position, context, answer, input_ids_, attention_mask, offset_mapping):
             start_positions.append(start_position)
             end_positions.append(end_position)
             contexts.append(context)
             answers.append(answer)
+            input_ids.append(input_ids_)
+            attention_masks.append(attention_mask)
+            offset_mappings.append(offset_mapping)
 
         # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
         for i, offsets in enumerate(tokenized_examples["offset_mapping"]):  # Pairs of (i, ith_token_offset)
@@ -341,6 +347,9 @@ class ExtractiveQuestionAnsweringTask(Task):
         tokenized_examples["end_positions"] = end_positions
         tokenized_examples["context"] = contexts
         tokenized_examples["answers"] = answers
+        tokenized_examples["input_ids"] = input_ids
+        tokenized_examples["attention_mask"] = attention_masks
+        tokenized_examples["offset_mapping"] = offset_mappings
 
         return tokenized_examples
 
