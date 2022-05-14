@@ -15,7 +15,9 @@ def get_base_path(train_config: TrainConfig, task: Optional[Task] = None, model_
     # Save to .results/{ID}/{task}/{model}/{run}/{0..5}/{logs/checkpoints/outputs}
     experiment_name = train_config.experiment_name
 
-    if train_config.do_test_overfit:
+    if train_config.custom_train_sample_count:
+        experiment_name = f"{experiment_name}_{train_config.custom_train_sample_count}_samples"
+    elif train_config.do_test_overfit:
         experiment_name = f"{experiment_name}_overfit"
     elif train_config.do_test_loop:
         experiment_name = f"{experiment_name}_loop"

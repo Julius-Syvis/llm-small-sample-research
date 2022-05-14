@@ -1,6 +1,7 @@
 # Custom
 .hf_cache/
 .results/
+analysis/
 .idea/
 
 # Byte-compiled / optimized / DLL files
