@@ -304,19 +304,17 @@ class ExtractiveQuestionAnsweringTask(Task):
 
         # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
         for i, offsets in enumerate(tokenized_examples["offset_mapping"]):  # Pairs of (i, ith_token_offset)
-            input_ids = tokenized_examples["input_ids"][i]
-            cls_token_index = input_ids.index(tokenizer.cls_token_id)  # Just 0
-
+            input_ids_ = tokenized_examples["input_ids"][i]
+            cls_token_index = input_ids_.index(tokenizer.cls_token_id)  # Just 0
             seq_ids = tokenized_examples.sequence_ids(i)  # 0s for question, None for [sep] and [cls], 1s for context
+
             context = examples["context"][i]
             answer = examples["answers"][i]
-            input_ids_ = tokenized_examples["input_ids"][i]
             attention_mask = tokenized_examples["attention_mask"][i]
 
             if len(answer["answer_start"]) == 0:
                 # If no answers are given, the correct label is first [cls] token
-                start_positions.append(cls_token_index)
-                end_positions.append(cls_token_index)
+                assign_entry(cls_token_index, cls_token_index, context, answer, input_ids_, attention_mask, offsets)
             else:
                 # We have a single answer
                 start_char = answer["answer_start"][0]
