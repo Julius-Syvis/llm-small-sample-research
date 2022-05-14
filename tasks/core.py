@@ -287,6 +287,14 @@ class ExtractiveQuestionAnsweringTask(Task):
 
         start_positions = []
         end_positions = []
+        contexts = []
+        answers = []
+
+        def assign_entry(start_position, end_position, context, answer):
+            start_positions.append(start_position)
+            end_positions.append(end_position)
+            contexts.append(context)
+            answers.append(answer)
 
         # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
         for i, offsets in enumerate(tokenized_examples["offset_mapping"]):  # Pairs of (i, ith_token_offset)
@@ -294,24 +302,24 @@ class ExtractiveQuestionAnsweringTask(Task):
             cls_token_index = input_ids.index(tokenizer.cls_token_id)  # Just 0
 
             seq_ids = tokenized_examples.sequence_ids(i)  # 0s for question, None for [sep] and [cls], 1s for context
-            answers = examples["answers"][i]
+            context = examples["context"][i]
+            answer = examples["answers"][i]
 
-            if len(answers["answer_start"]) == 0:
+            if len(answer["answer_start"]) == 0:
                 # If no answers are given, the correct label is first [cls] token
                 start_positions.append(cls_token_index)
                 end_positions.append(cls_token_index)
             else:
                 # We have a single answer
-                start_char = answers["answer_start"][0]
-                end_char = start_char + len(answers["text"][0])
+                start_char = answer["answer_start"][0]
+                end_char = start_char + len(answer["text"][0])
 
                 start_of_context_token_idx = seq_ids.index(1)
                 end_of_context_token_idx = len(seq_ids) - list(reversed(seq_ids)).index(1) - 1
 
                 if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx][1] < end_char:
                     # The required span is not in overflow
-                    start_positions.append(cls_token_index)
-                    end_positions.append(cls_token_index)
+                    assign_entry(cls_token_index, cls_token_index, context, answer)
                 else:
                     # The required span is in the overflow
 
@@ -319,21 +327,20 @@ class ExtractiveQuestionAnsweringTask(Task):
                     fitting_tokens = [i for (i, (from_, to_)) in enumerate(offsets) if (i >= start_of_context_token_idx
                                                                                         and from_ >= start_char)]
                     if len(fitting_tokens) == 0:
-                        break
+                        continue
 
                     start_token_index = min(len(offsets), fitting_tokens[0])
-                    start_positions.append(start_token_index)
 
                     # Pick last token that contains the required span
                     end_token_index = [i for (i, (from_, to_)) in enumerate(offsets) if (i < end_of_context_token_idx
                                                                                          and to_ <= end_char)][-1]
-                    end_positions.append(end_token_index)
+                    assign_entry(start_token_index, end_token_index, context, answer)
 
         # Setup tokenized_examples before returning
         tokenized_examples["start_positions"] = start_positions
         tokenized_examples["end_positions"] = end_positions
-        tokenized_examples["context"] = examples["context"]
-        tokenized_examples["answers"] = examples["answers"]
+        tokenized_examples["context"] = contexts
+        tokenized_examples["answers"] = answers
 
         return tokenized_examples
 
