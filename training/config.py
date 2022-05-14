@@ -17,6 +17,7 @@ class TrainConfig:
     batch_size_multiplier: int = 1
     do_save: bool = True
     delete_after_save: bool = True
+    early_stopping_patience: Optional[int] = None
 
     experiment_name: str = '0'
     track_metric: Optional[str] = None

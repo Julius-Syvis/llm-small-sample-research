@@ -83,12 +83,20 @@ def get_bert_base() -> ModelFactory:
     return ModelFactory("bert-base-cased")
 
 
+def get_bert_large_uncased() -> ModelFactory:
+    return ModelFactory("bert-large-uncased")
+
+
 def get_bert_base_uncased() -> ModelFactory:
     return ModelFactory("bert-base-uncased")
 
 
 def get_roberta_base() -> ModelFactory:
     return ModelFactory("roberta-base")
+
+
+def get_roberta_large() -> ModelFactory:
+    return ModelFactory("roberta-large")
 
 
 def get_canine_s() -> ModelFactory:
@@ -101,6 +109,10 @@ def get_canine_c() -> ModelFactory:
 
 def get_electra_base() -> ModelFactory:
     return ModelFactory("google/electra-base-discriminator")
+
+
+def get_electra_large() -> ModelFactory:
+    return ModelFactory("google/electra-large-discriminator")
 
 
 def get_big_bird() -> ModelFactory:
@@ -129,6 +141,14 @@ def get_word_encoder_model_factories() -> List[ModelFactory]:
             get_electra_base(), get_big_bird(), get_xlm()]
 
 
+def get_word_encoder_large_model_factories() -> List[ModelFactory]:
+    return [get_bert_large_uncased(), get_roberta_large(), get_electra_large()]
+
+
 def get_supported_model_factories() -> List[ModelFactory]:
     return [get_bert_base(), get_bert_base_uncased(), get_roberta_base(),
             get_electra_base(), get_big_bird(), get_xlm()]
+
+
+def get_supported_large_model_factories() -> List[ModelFactory]:
+    return [get_bert_large_uncased(), get_roberta_large(), get_electra_large()]

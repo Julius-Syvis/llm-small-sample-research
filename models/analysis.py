@@ -2,7 +2,8 @@ import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 from models.core import ModelFactory, get_bert_base, get_bert_base_uncased, get_roberta_base, get_canine_c, \
-    get_canine_s, get_electra_base, get_xlnet_base, get_big_bird, get_xlm, get_transformer_xl
+    get_canine_s, get_electra_base, get_xlnet_base, get_big_bird, get_xlm, get_transformer_xl, get_bert_large_uncased, \
+    get_electra_large, get_roberta_large
 from utils.gpu_utils import cleanup
 
 
@@ -38,10 +39,15 @@ def evaluate_model(model: PreTrainedModel):
     ref: https://discuss.pytorch.org/t/finding-model-size/130275
     """
     param_size = 0
+    num_params = 0
     for param in model.parameters():
+        num_params += param.nelement()
         param_size += param.nelement() * param.element_size()
+
     buffer_size = 0
+    num_buffers = 0
     for buffer in model.buffers():
+        num_buffers += buffer.nelement()
         buffer_size += buffer.nelement() * buffer.element_size()
 
     param_size_gb = param_size / (1024 ** 3)
@@ -49,6 +55,9 @@ def evaluate_model(model: PreTrainedModel):
     total_size_gb = param_size_gb + buffer_size_gb
     print(
         f" >Model size: {total_size_gb:.2f}GB (Param size: {param_size_gb:.2f}GB; Buffer size: {buffer_size_gb:.2f}GB)")
+
+    total_params = num_params + num_buffers
+    print(f" >Model size: {num_params} elements ({num_params} parameters and {num_buffers} buffers)")
 
     if hasattr(model, 'char_embeddings'):
         # vocab_size = model.char_embeddings.char_position_embeddings.num_embeddings
@@ -156,3 +165,24 @@ if __name__ == "__main__":
     # Vocab: 250052
     # Outputs: [1, 512, 768] & [1, 768]
     analyse_model(get_xlm())
+
+    # BERT-Large (uncased)
+    # Size: 1.25GB
+    # Encoder w/ 512 absolute word-level embeddings
+    # Vocab: 30522
+    # Outputs: [1, 512, 1024] & [1, 1024]
+    analyse_model(get_bert_large_uncased())
+
+    # ELECTRA-Large
+    # Size: 1.24GB
+    # Encoder w/ 512 absolute word-level embeddings
+    # Vocab: 30522
+    # Outputs: [1, 512, 1024] (no pools)
+    analyse_model(get_electra_large())
+
+    # RoBERTa-Large
+    # Size: 1.25GB
+    # Encoder w/ 514 absolute word-level embeddings (https://github.com/pytorch/fairseq/issues/1187)
+    # Vocab: 50265
+    # Outputs: [1, 512, 1024] & [1, 1024]
+    analyse_model(get_roberta_large())

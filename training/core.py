@@ -36,7 +36,7 @@ class MultipleTrainSequencer:
     @cleanup
     def train(self):
         setup_logging(self.train_config)
-        logging.info(f"MultipleTrainSequencer: {len(self.model_factories)} will be used with {len(self.tasks)} tasks.")
+        logging.info(f"MultipleTrainSequencer: {len(self.model_factories)} models will be used with {len(self.tasks)} tasks.")
 
         for model_factory in self.model_factories:
             for task in self.tasks:
@@ -317,6 +317,7 @@ class TrainSequencer:
         callbacks = []
 
         if not self.train_config.do_test_overfit and self.train_config.do_save:
-            callbacks.append(EarlyStoppingCallback(10, 0.0))
+            patience = self.train_config.early_stopping_patience or 10
+            callbacks.append(EarlyStoppingCallback(patience, 0.0))
 
         return callbacks
