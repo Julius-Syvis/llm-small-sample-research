@@ -310,6 +310,8 @@ class ExtractiveQuestionAnsweringTask(Task):
             seq_ids = tokenized_examples.sequence_ids(i)  # 0s for question, None for [sep] and [cls], 1s for context
             context = examples["context"][i]
             answer = examples["answers"][i]
+            input_ids_ = tokenized_examples["input_ids"][i]
+            attention_mask = tokenized_examples["attention_mask"][i]
 
             if len(answer["answer_start"]) == 0:
                 # If no answers are given, the correct label is first [cls] token
@@ -325,7 +327,7 @@ class ExtractiveQuestionAnsweringTask(Task):
 
                 if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx][1] < end_char:
                     # The required span is not in overflow
-                    assign_entry(cls_token_index, cls_token_index, context, answer)
+                    assign_entry(cls_token_index, cls_token_index, context, answer, input_ids_, attention_mask, offsets)
                 else:
                     # The required span is in the overflow
 
@@ -340,7 +342,7 @@ class ExtractiveQuestionAnsweringTask(Task):
                     # Pick last token that contains the required span
                     end_token_index = [i for (i, (from_, to_)) in enumerate(offsets) if (i < end_of_context_token_idx
                                                                                          and to_ <= end_char)][-1]
-                    assign_entry(start_token_index, end_token_index, context, answer)
+                    assign_entry(start_token_index, end_token_index, context, answer, input_ids_, attention_mask, offsets)
 
         # Setup tokenized_examples before returning
         tokenized_examples["start_positions"] = start_positions
