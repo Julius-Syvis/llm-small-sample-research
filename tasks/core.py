@@ -318,6 +318,9 @@ class ExtractiveQuestionAnsweringTask(Task):
                     # Pick first token that contains the required span
                     fitting_tokens = [i for (i, (from_, to_)) in enumerate(offsets) if (i >= start_of_context_token_idx
                                                                                         and from_ >= start_char)]
+                    if len(fitting_tokens) == 0:
+                        break
+
                     start_token_index = min(len(offsets), fitting_tokens[0])
                     start_positions.append(start_token_index)
 
