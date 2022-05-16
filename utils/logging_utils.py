@@ -43,7 +43,7 @@ def get_base_path(train_config: TrainConfig, task: Optional[Task] = None, model_
     return path
 
 
-def setup_logging(train_config: TrainConfig):
+def setup_logging(train_config: TrainConfig) -> Path:
     fn = str(datetime.now().strftime("%m-%d.%H-%M-%S"))
 
     logs_path = get_base_path(train_config, logging_path=True)
@@ -58,3 +58,5 @@ def setup_logging(train_config: TrainConfig):
         ],
         force=True,
     )
+
+    return logs_path

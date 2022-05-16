@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import List
 
 from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, AutoModelForTokenClassification, \
@@ -6,10 +7,11 @@ from transformers import AutoModel, PreTrainedTokenizerBase, PreTrainedModel, Au
 from models import CACHE_DIR
 
 
+@dataclass(frozen=True)
 class ModelFactory:
-    def __init__(self, model_hub_name, is_character_level=False):
-        self.model_hub_name = model_hub_name
-        self.is_character_level = is_character_level
+    model_hub_name: str
+    is_character_level: bool = False
+    supports_gradient_checkpointing: bool = True
 
     def load_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
@@ -29,7 +31,12 @@ class ModelFactory:
             cache_dir=CACHE_DIR
         )
 
+        return self._prep_model(model)
+
+    def _prep_model(self, model: PreTrainedModel) -> PreTrainedModel:
         model = model.cuda()
+        model.supports_gradient_checkpointing = self.supports_gradient_checkpointing
+
         return model
 
     def load_token_classification_model(self, label_names: List[str]) -> PreTrainedModel:
@@ -43,8 +50,7 @@ class ModelFactory:
             cache_dir=CACHE_DIR
         )
 
-        model = model.cuda()
-        return model
+        return self._prep_model(model)
 
     def load_multiple_choice_model(self) -> PreTrainedModel:
         model = AutoModelForMultipleChoice.from_pretrained(
@@ -52,8 +58,7 @@ class ModelFactory:
             cache_dir=CACHE_DIR
         )
 
-        model = model.cuda()
-        return model
+        return self._prep_model(model)
 
     def load_classification_model(self, label_names: List[str]) -> PreTrainedModel:
         id2label = {str(i): label for i, label in enumerate(label_names)}
@@ -66,8 +71,7 @@ class ModelFactory:
             cache_dir=CACHE_DIR
         )
 
-        model = model.cuda()
-        return model
+        return self._prep_model(model)
 
     def load_question_answering_model(self) -> PreTrainedModel:
         model = AutoModelForQuestionAnswering.from_pretrained(
@@ -75,8 +79,7 @@ class ModelFactory:
             cache_dir=CACHE_DIR
         )
 
-        model = model.cuda()
-        return model
+        return self._prep_model(model)
 
 
 def get_bert_base() -> ModelFactory:
@@ -119,9 +122,8 @@ def get_big_bird() -> ModelFactory:
     return ModelFactory("google/bigbird-roberta-base")
 
 
-# TODO: fix gradient checkpointing
 def get_xlnet_base() -> ModelFactory:
-    return ModelFactory("xlnet-base-cased")
+    return ModelFactory("xlnet-base-cased", supports_gradient_checkpointing=False)
 
 
 def get_transformer_xl() -> ModelFactory:

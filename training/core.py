@@ -35,8 +35,10 @@ class MultipleTrainSequencer:
 
     @cleanup
     def train(self):
-        setup_logging(self.train_config)
-        logging.info(f"MultipleTrainSequencer: {len(self.model_factories)} models will be used with {len(self.tasks)} tasks.")
+        path = setup_logging(self.train_config)
+        logging.info(f"MultipleTrainSequencer: {len(self.model_factories)} models "
+                     f"will be used with {len(self.tasks)} tasks.")
+        logging.info(f"Results will be saved under {path}")
 
         for model_factory in self.model_factories:
             for task in self.tasks:
@@ -52,9 +54,10 @@ class TrainSequencer:
 
     @cleanup
     def train(self):
-        logging.info(f"Running experiment {self.train_config.experiment_name} "
-                     f"on {self.model_factory.model_hub_name} "
-                     f"with {self.task.hub_dataset_name}..")
+        logging.info(f"Running experiment '{self.train_config.experiment_name}' "
+                     f"on model '{self.model_factory.model_hub_name}' "
+                     f"and task '{self.task.hub_dataset_name}' "
+                     f"with parameters: {self.train_config}")
 
         logging.info("Preparing cross validation sets..")
         dataset_dict = self.task.get_loaded_dataset(self.task.validation_col,
@@ -162,7 +165,7 @@ class TrainSequencer:
             per_device_train_batch_size=1 * self.train_config.batch_size_multiplier,
             per_device_eval_batch_size=1 * self.train_config.batch_size_multiplier,
             gradient_accumulation_steps=32,
-            gradient_checkpointing=True,
+            gradient_checkpointing=model.supports_gradient_checkpointing,
             eval_accumulation_steps=1 * self.train_config.batch_size_multiplier,
             fp16=True,
             fp16_full_eval=True,
