@@ -126,10 +126,6 @@ def get_xlnet_base() -> ModelFactory:
     return ModelFactory("xlnet-base-cased", supports_gradient_checkpointing=False)
 
 
-def get_transformer_xl() -> ModelFactory:
-    return ModelFactory("transfo-xl-wt103", is_character_level=True)
-
-
 def get_xlm() -> ModelFactory:
     return ModelFactory("xlm-roberta-base")
 

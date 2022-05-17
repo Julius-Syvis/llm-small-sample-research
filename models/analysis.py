@@ -152,13 +152,6 @@ if __name__ == "__main__":
     # Outputs: [1, 512, 768] (no pools)
     analyse_model(get_xlnet_base())
 
-    # Transformer-XL
-    # Size: 1.06GB
-    # Encoder w/ -1 relative position word-level embeddings
-    # Vocab: 267735 (word-level)
-    # Outputs: [1, 512, 1024] (no pools)
-    analyse_model(get_transformer_xl())  # OOM issues
-
     # XLM
     # Size: 1.04GB
     # Encoder w/ 514 absolute position word-level embeddings
