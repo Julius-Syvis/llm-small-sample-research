@@ -1,13 +1,12 @@
-from datasets import load_dataset, DatasetDict, Dataset, Features
+from datasets import DatasetDict, Dataset, Features
 
-from models import CACHE_DIR
-from tasks.core import get_conll_2003, get_swag, get_ag_news, get_squad_v2
+from tasks.core import get_conll_2003, get_swag, get_ag_news, get_squad_v2, get_wikiann_en, get_wikiann_lt
 
 
 def analyse_task(task):
-    dataset: DatasetDict = load_dataset(task.hub_dataset_name, cache_dir=CACHE_DIR)
+    dataset: DatasetDict = task.loaded_dataset
 
-    print(f"Analysing {task.hub_dataset_name}")
+    print(f"Analysing {task.get_dataset_name()}")
     print(f"Keys: {dataset.keys()}")
 
     for key in dataset.keys():
@@ -25,6 +24,16 @@ if __name__ == "__main__":
     # 14042, 3251, 3454
     # [id, tokens, chunk_tags, pos_tags, ner_tags]
     analyse_task(get_conll_2003())
+
+    # NER (wikiann)
+    # 10000, 10000, 10000
+    # [tokens, ner_tags, langs, spans]
+    analyse_task(get_wikiann_lt())
+
+    # NER (wikiann)
+    # 10000, 10000, 20000
+    # [tokens, ner_tags, langs, spans]
+    analyse_task(get_wikiann_en())
 
     # Multiple Choice (SWAG)
     # 73456, 20006, 20005

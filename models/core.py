@@ -126,17 +126,29 @@ def get_xlnet_base() -> ModelFactory:
     return ModelFactory("xlnet-base-cased", supports_gradient_checkpointing=False)
 
 
-def get_xlm() -> ModelFactory:
+def get_xlm_roberta() -> ModelFactory:
     return ModelFactory("xlm-roberta-base")
 
 
+def get_xlm_roberta_large() -> ModelFactory:
+    return ModelFactory("xlm-roberta-large")
+
+
+def get_multilingual_bert() -> ModelFactory:
+    return ModelFactory("bert-base-multilingual-uncased")
+
+
+def get_multilingual_bert_cased() -> ModelFactory:
+    return ModelFactory("bert-base-multilingual-cased")
+
+
 def get_character_encoder_model_factories() -> List[ModelFactory]:
-    return [get_canine_c(), get_canine_s(), get_transformer_xl()]
+    return [get_canine_c(), get_canine_s()]
 
 
 def get_word_encoder_model_factories() -> List[ModelFactory]:
     return [get_bert_base(), get_bert_base_uncased(), get_roberta_base(),
-            get_electra_base(), get_big_bird(), get_xlm()]
+            get_electra_base(), get_big_bird(), get_xlm_roberta()]
 
 
 def get_word_encoder_large_model_factories() -> List[ModelFactory]:
@@ -145,7 +157,7 @@ def get_word_encoder_large_model_factories() -> List[ModelFactory]:
 
 def get_supported_model_factories() -> List[ModelFactory]:
     return [get_bert_base(), get_bert_base_uncased(), get_roberta_base(),
-            get_electra_base(), get_big_bird(), get_xlm()]
+            get_electra_base(), get_big_bird(), get_xlm_roberta()]
 
 
 def get_supported_large_model_factories() -> List[ModelFactory]:

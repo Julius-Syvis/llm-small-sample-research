@@ -18,6 +18,8 @@ class TrainConfig:
     do_save: bool = True
     delete_after_save: bool = True
     early_stopping_patience: Optional[int] = None
+    validation_set_size_limit: Optional[int] = None
+    test_set_size_limit: Optional[int] = None
 
     experiment_name: str = '0'
     track_metric: Optional[str] = None

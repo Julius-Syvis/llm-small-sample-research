@@ -61,24 +61,28 @@ def prepare_cross_validation(dsd: DatasetDict, validation_col: Optional[str],
 
 
 def prepare_test_dsd(dsd: DatasetDict) -> DatasetDict:
-    dsd = prepare_dsd(dsd, False, None)
-
-    return DatasetDict({
-        "train": dsd["train"].train_test_split(100, seed=SEED)["test"],
-        "validation": dsd["validation"].train_test_split(10, seed=SEED)["test"],
-        "test": dsd["test"].train_test_split(10, seed=SEED)["test"]
-    })
+    return prepare_dsd(dsd, True, 100, 10, 10)
 
 
-def prepare_dsd(dsd: DatasetDict, few_sample: bool, custom_train_sample_count: Optional[int]) -> DatasetDict:
+def prepare_dsd(dsd: DatasetDict, few_sample: bool, custom_train_sample_count: Optional[int],
+                validation_set_size_limit: Optional[int] = None,
+                test_set_size_limit: Optional[int] = None) -> DatasetDict:
     train_ds: Dataset = dsd['train']
 
     if few_sample:
         train_sample_count = custom_train_sample_count or 1000
         train_ds = train_ds.train_test_split(train_sample_count, seed=SEED)["test"]
 
+    val_ds = dsd['validation']
+    if validation_set_size_limit:
+        val_ds = val_ds.train_test_split(validation_set_size_limit, seed=SEED)["test"]
+
+    test_ds = dsd['test']
+    if test_set_size_limit:
+        test_ds = test_ds.train_test_split(test_set_size_limit, seed=SEED)["test"]
+
     return DatasetDict({
         "train": train_ds,
-        "validation": dsd['validation'],
-        "test": dsd['test']
+        "validation": val_ds,
+        "test": test_ds
     })

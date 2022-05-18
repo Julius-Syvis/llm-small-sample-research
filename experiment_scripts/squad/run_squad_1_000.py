@@ -1,4 +1,4 @@
-from models.core import get_supported_model_factories, get_xlm
+from models.core import get_supported_model_factories, get_xlm_roberta
 from tasks.core import get_squad_v2
 from training.core import TrainConfig, MultipleTrainSequencer
 

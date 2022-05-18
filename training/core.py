@@ -56,7 +56,7 @@ class TrainSequencer:
     def train(self):
         logging.info(f"Running experiment '{self.train_config.experiment_name}' "
                      f"on model '{self.model_factory.model_hub_name}' "
-                     f"and task '{self.task.hub_dataset_name}' "
+                     f"and task '{self.task.get_dataset_name()}' "
                      f"with parameters: {self.train_config}")
 
         logging.info("Preparing cross validation sets..")
@@ -68,7 +68,9 @@ class TrainSequencer:
             dataset_dict = prepare_test_dsd(dataset_dict)
         else:
             dataset_dict = prepare_dsd(dataset_dict, self.train_config.do_few_sample,
-                                       self.train_config.custom_train_sample_count)
+                                       self.train_config.custom_train_sample_count,
+                                       self.train_config.validation_set_size_limit,
+                                       self.train_config.test_set_size_limit)
 
         logging.info("Loading tokenizer..")
         tokenizer = self.model_factory.load_tokenizer()

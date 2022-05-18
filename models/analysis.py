@@ -1,9 +1,9 @@
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-from models.core import ModelFactory, get_bert_base, get_bert_base_uncased, get_roberta_base, get_canine_c, \
-    get_canine_s, get_electra_base, get_xlnet_base, get_big_bird, get_xlm, get_transformer_xl, get_bert_large_uncased, \
-    get_electra_large, get_roberta_large
+from models.core import ModelFactory, get_xlm_roberta, get_xlm_roberta_large, get_roberta_base, \
+    get_canine_c, get_bert_base_uncased, get_bert_base, get_canine_s, get_electra_base, get_big_bird, get_xlnet_base, \
+    get_bert_large_uncased, get_electra_large, get_roberta_large, get_multilingual_bert, get_multilingual_bert_cased
 from utils.gpu_utils import cleanup
 
 
@@ -12,9 +12,11 @@ def analyse_model(model_factory: ModelFactory):
     print(f"Analysing {model_factory.model_hub_name}")
 
     tokenizer = model_factory.load_tokenizer()
+    print(f" >Tokenizer loaded as: {type(tokenizer)}")
     evaluate_tokenizer(tokenizer)
 
     model = model_factory.load_model()
+    print(f" >Model loaded as: {type(model)}")
     evaluate_model(model)
 
     print()
@@ -96,6 +98,8 @@ def evaluate_model(model: PreTrainedModel):
 
 
 if __name__ == "__main__":
+    pass
+
     # BERT cased
     # Size: 0.4GB
     # Encoder w/ 512 absolute word-level embeddings
@@ -152,12 +156,12 @@ if __name__ == "__main__":
     # Outputs: [1, 512, 768] (no pools)
     analyse_model(get_xlnet_base())
 
-    # XLM
+    # XLM-RoBERTa
     # Size: 1.04GB
     # Encoder w/ 514 absolute position word-level embeddings
     # Vocab: 250052
     # Outputs: [1, 512, 768] & [1, 768]
-    analyse_model(get_xlm())
+    analyse_model(get_xlm_roberta())
 
     # BERT-Large (uncased)
     # Size: 1.25GB
@@ -179,3 +183,24 @@ if __name__ == "__main__":
     # Vocab: 50265
     # Outputs: [1, 512, 1024] & [1, 1024]
     analyse_model(get_roberta_large())
+
+    # XLM-RoBERTa-XL-Large
+    # Size: 2.09GB
+    # Encoder w/ 514 absolute position word-level embeddings
+    # Vocab: 250052
+    # Outputs: [1, 512, 1024] & [1, 1024]
+    analyse_model(get_xlm_roberta_large())
+
+    # mBERT
+    # Size: 0.62GB
+    # Encoder w/ 512 absolute word-level embeddings
+    # Vocab: 105879
+    # Outputs: [1, 512, 768] & [1, 768]
+    analyse_model(get_multilingual_bert())
+
+    # mBERT cased
+    # Size: 0.66B
+    # Encoder w/ 512 absolute word-level embeddings
+    # Vocab: 119547
+    # Outputs: [1, 512, 768] & [1, 768]
+    analyse_model(get_multilingual_bert_cased())

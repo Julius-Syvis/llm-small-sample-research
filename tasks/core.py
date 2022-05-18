@@ -18,7 +18,9 @@ from utils.data_utils import prepare_cross_validation
 
 
 class Task(abc.ABC):
-    def __init__(self, hub_dataset_name: str,
+    def __init__(self,
+                 hub_dataset_name: str,
+                 hub_dataset_subname: Optional[str] = None,
                  validation_col: Optional[str] = "validation",
                  test_col: Optional[str] = "test",
                  track_metric: Optional[str] = None,
@@ -26,13 +28,22 @@ class Task(abc.ABC):
                  split_by_col: Optional[str] = None,
                  kept_cols: Optional[Set[str]] = None):
         self.hub_dataset_name: str = hub_dataset_name
+        self.hub_dataset_subname: str = hub_dataset_subname
         self.validation_col = validation_col
         self.test_col = test_col
         self.track_metric = track_metric
         self.greater_is_better = greater_is_better
         self.split_by_col = split_by_col
         self.kept_cols = kept_cols or {}
-        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, cache_dir=CACHE_DIR, keep_in_memory=False)
+        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, hub_dataset_subname, cache_dir=CACHE_DIR, keep_in_memory=False)
+
+    def get_dataset_name(self):
+        if self.hub_dataset_subname:
+            name = f"{self.hub_dataset_name}-{self.hub_dataset_subname}"
+        else:
+            name = self.hub_dataset_name
+
+        return name.replace("/", "-")
 
     @abc.abstractmethod
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
@@ -374,6 +385,14 @@ class ExtractiveQuestionAnsweringTask(Task):
 
 def get_conll_2003() -> NERTask:
     return NERTask("conll2003", track_metric="f1")
+
+
+def get_wikiann_lt() -> NERTask:
+    return NERTask("wikiann", "lt", track_metric="f1")
+
+
+def get_wikiann_en() -> NERTask:
+    return NERTask("wikiann", "en", track_metric="f1")
 
 
 def get_swag() -> MultipleChoiceTask:

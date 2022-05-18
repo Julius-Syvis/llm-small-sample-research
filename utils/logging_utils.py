@@ -30,7 +30,7 @@ def get_base_path(train_config: TrainConfig, task: Optional[Task] = None, model_
     if logging_path:
         return path
 
-    path /= task.hub_dataset_name.split("/")[-1]
+    path /= task.get_dataset_name()
     os.makedirs(path, exist_ok=True)
 
     if metrics_path:
