@@ -35,7 +35,8 @@ class Task(abc.ABC):
         self.greater_is_better = greater_is_better
         self.split_by_col = split_by_col
         self.kept_cols = kept_cols or {}
-        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, hub_dataset_subname, cache_dir=CACHE_DIR, keep_in_memory=False)
+        self.loaded_dataset: DatasetDict = load_dataset(hub_dataset_name, hub_dataset_subname,
+                                                        cache_dir=CACHE_DIR, keep_in_memory=False)
 
     def get_dataset_name(self):
         if self.hub_dataset_subname:
@@ -157,8 +158,6 @@ class NERTask(Task):
                 word_ids = [([j] * len(s)) for (j, s) in enumerate(examples.data['tokens'][i])]
                 word_ids = list(chain(*[[None, *w] for w in word_ids]))[1:]
                 word_ids = [None, *word_ids, None]
-
-                raise NotImplementedError
             else:
                 word_ids = tokenized_inputs.word_ids(i)
 
@@ -291,11 +290,42 @@ class ExtractiveQuestionAnsweringTask(Task):
             examples['question'],
             examples['context'],
             truncation="only_second",
-            return_offsets_mapping=True,
+            return_offsets_mapping=not tokenizer.is_character_level,
             max_length=tokenizer.max_sequence_length,
             padding=False,
         )
 
+        if tokenizer.is_character_level:
+            # Create mappings and sequence ids
+            all_offset_mappings = []
+            for i in range(len(examples['question'])):
+                mapping = []
+
+                question_len = len(examples['question'][i])  # E.g. 10
+                context_len = len(examples['context'][i])  # E.g. 20
+
+                for j in range(tokenizer.max_sequence_length):
+                    if j > 0 and j <= question_len:
+                        # 1 to 10
+                        mapping.append((j - 1, j - 1))
+                    elif j > question_len + 1 and j <= question_len + context_len + 1:
+                        # 12 to 31
+                        mapping.append((j - question_len - 2, j - question_len - 2))
+                    else:
+                        # 0; 11; 32
+                        mapping.append((0, 0))
+
+                all_offset_mappings.append(mapping)
+
+            all_seq_ids = tokenized_examples.data['token_type_ids']
+        else:
+            # 0s for question, None for [sep] and [cls], 1s for context
+            all_seq_ids = [tokenized_examples.sequence_ids(i) for i in range(len(examples['question']))]
+
+            # Pairs of (i, ith_token_offset)
+            all_offset_mappings = tokenized_examples["offset_mapping"]
+
+        # Selected entries
         start_positions = []
         end_positions = []
         contexts = []
@@ -303,8 +333,10 @@ class ExtractiveQuestionAnsweringTask(Task):
         input_ids = []
         attention_masks = []
         offset_mappings = []
+        token_type_ids = []
 
-        def assign_entry(start_position, end_position, context, answer, input_ids_, attention_mask, offset_mapping):
+        def assign_entry(start_position, end_position, context, answer,
+                         input_ids_, attention_mask, offset_mapping, seq_ids):
             start_positions.append(start_position)
             end_positions.append(end_position)
             contexts.append(context)
@@ -312,12 +344,14 @@ class ExtractiveQuestionAnsweringTask(Task):
             input_ids.append(input_ids_)
             attention_masks.append(attention_mask)
             offset_mappings.append(offset_mapping)
+            token_type_ids.append(seq_ids)
 
         # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
-        for i, offsets in enumerate(tokenized_examples["offset_mapping"]):  # Pairs of (i, ith_token_offset)
+        for i in range(len(all_seq_ids)):
             input_ids_ = tokenized_examples["input_ids"][i]
             cls_token_index = input_ids_.index(tokenizer.cls_token_id)  # Just 0
-            seq_ids = tokenized_examples.sequence_ids(i)  # 0s for question, None for [sep] and [cls], 1s for context
+            offsets = all_offset_mappings[i]
+            seq_ids = all_seq_ids[i]
 
             context = examples["context"][i]
             answer = examples["answers"][i]
@@ -325,7 +359,8 @@ class ExtractiveQuestionAnsweringTask(Task):
 
             if len(answer["answer_start"]) == 0:
                 # If no answers are given, the correct label is first [cls] token
-                assign_entry(cls_token_index, cls_token_index, context, answer, input_ids_, attention_mask, offsets)
+                assign_entry(cls_token_index, cls_token_index, context,
+                             answer, input_ids_, attention_mask, offsets, seq_ids)
             else:
                 # We have a single answer
                 start_char = answer["answer_start"][0]
@@ -336,7 +371,8 @@ class ExtractiveQuestionAnsweringTask(Task):
 
                 if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx][1] < end_char:
                     # The required span is not in overflow
-                    assign_entry(cls_token_index, cls_token_index, context, answer, input_ids_, attention_mask, offsets)
+                    assign_entry(cls_token_index, cls_token_index, context,
+                                 answer, input_ids_, attention_mask, offsets, seq_ids)
                 else:
                     # The required span is in the overflow
 
@@ -351,7 +387,8 @@ class ExtractiveQuestionAnsweringTask(Task):
                     # Pick last token that contains the required span
                     end_token_index = [i for (i, (from_, to_)) in enumerate(offsets) if (i < end_of_context_token_idx
                                                                                          and to_ <= end_char)][-1]
-                    assign_entry(start_token_index, end_token_index, context, answer, input_ids_, attention_mask, offsets)
+                    assign_entry(start_token_index, end_token_index, context,
+                                 answer, input_ids_, attention_mask, offsets, seq_ids)
 
         # Setup tokenized_examples before returning
         tokenized_examples["start_positions"] = start_positions
@@ -361,6 +398,8 @@ class ExtractiveQuestionAnsweringTask(Task):
         tokenized_examples["input_ids"] = input_ids
         tokenized_examples["attention_mask"] = attention_masks
         tokenized_examples["offset_mapping"] = offset_mappings
+        # if tokenizer.is_character_level:
+        #     tokenized_examples["token_type_ids"] = token_type_ids
 
         return tokenized_examples
 
