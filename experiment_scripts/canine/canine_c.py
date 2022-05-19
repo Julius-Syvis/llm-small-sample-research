@@ -10,6 +10,7 @@ if __name__ == "__main__":
         TrainConfig(
             do_train=False,
             custom_train_sample_count=0,
+            batch_size_multiplier=2,
             experiment_name=f"canine_c_none"))
     sequencer.train()
 
@@ -21,6 +22,7 @@ if __name__ == "__main__":
             custom_eval_step=10,
             custom_max_step=200,
             early_stopping_patience=3,
+            batch_size_multiplier=2,
             experiment_name=f"canine_c_10"))
     sequencer.train()
 
@@ -33,5 +35,6 @@ if __name__ == "__main__":
                 early_stopping_patience=5,
                 validation_set_size_limit=100,
                 test_set_size_limit=100,
+                batch_size_multiplier=2,
                 experiment_name=f"canine_c_{sample_size}"))
         sequencer.train()
