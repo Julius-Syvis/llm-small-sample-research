@@ -5,7 +5,7 @@ from training.core import MultipleTrainSequencer
 
 if __name__ == "__main__":
     sequencer = MultipleTrainSequencer(
-        get_canine_c(),
+        [get_canine_c()],
         get_supported_tasks(),
         TrainConfig(
             do_train=False,
@@ -14,7 +14,7 @@ if __name__ == "__main__":
     sequencer.train()
 
     sequencer = MultipleTrainSequencer(
-        get_canine_c(),
+        [get_canine_c()],
         get_supported_tasks(),
         TrainConfig(
             custom_train_sample_count=10,
@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     for sample_size in [100, 1000, 10000]:
         sequencer = MultipleTrainSequencer(
-            get_canine_c(),
+            [get_canine_c()],
             get_supported_tasks(),
             TrainConfig(
                 custom_train_sample_count=sample_size,
