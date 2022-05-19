@@ -85,6 +85,14 @@ class Task(abc.ABC):
         return prepare_cross_validation(self.loaded_dataset, validation_col, test_col, split_by_col)
 
     def tokenize(self, tokenizer: PreTrainedTokenizerBase, dataset: DatasetDict) -> DatasetDict:
+        def entry_is_not_short(entry) -> bool:
+            if 'tokens' not in entry:
+                return True
+
+            return len(entry['tokens']) > 1
+
+        dataset = dataset.filter(entry_is_not_short)
+
         tokenized_dataset = dataset.map(
             partial(self._tokenize_and_align_labels, tokenizer),
             batched=True,
@@ -349,6 +357,7 @@ class ExtractiveQuestionAnsweringTask(Task):
         # https://github.com/huggingface/transformers/blob/main/examples/pytorch/question-answering/run_qa.py
         for i in range(len(all_seq_ids)):
             input_ids_ = tokenized_examples["input_ids"][i]
+
             cls_token_index = input_ids_.index(tokenizer.cls_token_id)  # Just 0
             offsets = all_offset_mappings[i]
             seq_ids = all_seq_ids[i]
