@@ -5,7 +5,7 @@ from training.config import TrainConfig
 from training.core import MultipleTrainSequencer
 
 if __name__ == "__main__":
-    for task in [get_conll_2003()]:
+    for task in [get_squad_v2()]:
         sequencer = MultipleTrainSequencer(
             get_character_encoder_model_factories(),
             [task],

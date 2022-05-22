@@ -378,7 +378,10 @@ class ExtractiveQuestionAnsweringTask(Task):
                 start_of_context_token_idx = seq_ids.index(1)
                 end_of_context_token_idx = len(seq_ids) - list(reversed(seq_ids)).index(1) - 1
 
-                if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx][1] < end_char:
+                if tokenizer.is_character_level:
+                    end_of_context_token_idx -= 1
+
+                if offsets[start_of_context_token_idx][0] > start_char or offsets[end_of_context_token_idx - 1][1] < end_char:
                     # The required span is not in overflow
                     assign_entry(cls_token_index, cls_token_index, context,
                                  answer, input_ids_, attention_mask, offsets, seq_ids)

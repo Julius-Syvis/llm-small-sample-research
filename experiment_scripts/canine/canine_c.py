@@ -1,12 +1,12 @@
 from models.core import get_canine_c
-from tasks.core import get_supported_tasks
+from tasks.core import get_squad_v2
 from training.config import TrainConfig
 from training.core import MultipleTrainSequencer
 
 if __name__ == "__main__":
     sequencer = MultipleTrainSequencer(
         [get_canine_c()],
-        get_supported_tasks(),
+        [get_squad_v2()],
         TrainConfig(
             do_train=False,
             custom_train_sample_count=0,
@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     sequencer = MultipleTrainSequencer(
         [get_canine_c()],
-        get_supported_tasks(),
+        [get_squad_v2()],
         TrainConfig(
             custom_train_sample_count=10,
             custom_eval_step=10,
@@ -26,10 +26,10 @@ if __name__ == "__main__":
             experiment_name=f"canine_c_10"))
     sequencer.train()
 
-    for sample_size in [100, 1000, 10000]:
+    for sample_size in [10000]:
         sequencer = MultipleTrainSequencer(
             [get_canine_c()],
-            get_supported_tasks(),
+            [get_squad_v2()],
             TrainConfig(
                 custom_train_sample_count=sample_size,
                 early_stopping_patience=5,
