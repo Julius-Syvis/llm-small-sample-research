@@ -72,15 +72,15 @@ def prepare_dsd(dsd: DatasetDict, few_sample: bool, custom_train_sample_count: O
     if few_sample:
         train_sample_count = custom_train_sample_count or 1000
 
-        if custom_train_sample_count > len(train_ds):
+        if custom_train_sample_count < len(train_ds):
             train_ds = train_ds.train_test_split(train_sample_count, seed=SEED)["test"]
 
     val_ds = dsd['validation']
-    if validation_set_size_limit and validation_set_size_limit > len(val_ds):
+    if validation_set_size_limit and validation_set_size_limit < len(val_ds):
         val_ds = val_ds.train_test_split(validation_set_size_limit, seed=SEED)["test"]
 
     test_ds = dsd['test']
-    if test_set_size_limit and test_set_size_limit > len(test_ds):
+    if test_set_size_limit and test_set_size_limit < len(test_ds):
         test_ds = test_ds.train_test_split(test_set_size_limit, seed=SEED)["test"]
 
     return DatasetDict({
