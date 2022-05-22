@@ -176,8 +176,8 @@ class TrainSequencer:
             remove_unused_columns=True,
             dataloader_pin_memory=False,
 
-            seed=SEED,
-            data_seed=SEED,
+            seed=SEED if not self.train_config.do_stability_test else np.random.randint(0, 10000),
+            data_seed=SEED if not self.train_config.do_stability_test else np.random.randint(0, 10000),
         )
 
         trainer = Trainer(

@@ -8,6 +8,7 @@ class TrainConfig:
     do_test_overfit: bool = False
     do_test_loop: bool = False
     do_few_sample: bool = True
+    do_stability_test: bool = False
 
     custom_train_sample_count: Optional[int] = None
     custom_eval_step: Optional[int] = None

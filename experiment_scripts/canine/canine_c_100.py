@@ -4,7 +4,7 @@ from training.config import TrainConfig
 from training.core import MultipleTrainSequencer
 
 if __name__ == "__main__":
-    for sample_size in [100, 1000]:
+    for sample_size in [100]:
         sequencer = MultipleTrainSequencer(
             [get_canine_c()],
             [get_squad_v2()],
