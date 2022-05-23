@@ -181,7 +181,8 @@ class NERTask(Task):
             new_labels.append(aligned_labels)
 
         if len(skipped_labels) > 0:
-            logging.info(f"During NER tokenization, skipped {len(skipped_labels)} labels.")
+            logging.info(f"During NER tokenization, skipped {len(skipped_labels)} labels. "
+                         f"One had a length of {max([len(sl) for sl in skipped_labels])}!")
 
         tokenized_inputs["labels"] = new_labels
         return tokenized_inputs
