@@ -1,4 +1,5 @@
 import abc
+import logging
 from functools import partial
 from itertools import chain
 from typing import List, Optional, Callable, Set
@@ -161,16 +162,25 @@ class NERTask(Task):
 
         all_labels = examples["ner_tags"]
         new_labels = []
+        skipped_labels = []
         for i, labels in enumerate(all_labels):
             if tokenizer.is_character_level:
                 word_ids = [([j] * len(s)) for (j, s) in enumerate(examples.data['tokens'][i])]
                 word_ids = list(chain(*[[None, *w] for w in word_ids]))[1:]
                 word_ids = [None, *word_ids, None]
+
+                if word_ids[-1] > (tokenizer.max_sequence_length - 20): # 20 is arbitrary, want to prevent bugs
+                    skipped_labels.append(word_ids)
+                    continue
+
             else:
                 word_ids = tokenized_inputs.word_ids(i)
 
             aligned_labels = self._align_labels_with_tokens(labels, word_ids)
             new_labels.append(aligned_labels)
+
+        if len(skipped_labels > 0):
+            logging.info(f"During NER tokenization, skipped {len(skipped_labels)} labels.")
 
         tokenized_inputs["labels"] = new_labels
         return tokenized_inputs
