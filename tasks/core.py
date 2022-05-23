@@ -169,7 +169,7 @@ class NERTask(Task):
                 word_ids = list(chain(*[[None, *w] for w in word_ids]))[1:]
                 word_ids = [None, *word_ids, None]
 
-                if word_ids[-1] > (tokenizer.max_sequence_length - 20): # 20 is arbitrary, want to prevent bugs
+                if len(word_ids) > (tokenizer.max_sequence_length - 20): # 20 is arbitrary, want to prevent bugs
                     skipped_labels.append(word_ids)
                     continue
 
