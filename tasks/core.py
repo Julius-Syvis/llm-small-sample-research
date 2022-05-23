@@ -154,6 +154,7 @@ class NERTask(Task):
     def _tokenize_and_align_labels(self, tokenizer: PreTrainedTokenizerBase, examples: Batch) -> BatchEncoding:
         if tokenizer.is_character_level:
             concatenated_tokens = [' '.join(e) for e in examples.data['tokens']]
+            concatenated_tokens = [t for t in concatenated_tokens if len(t) < 2000]
             tokenized_inputs = tokenizer(concatenated_tokens, truncation=True, is_split_into_words=False,
                                          max_length=tokenizer.max_sequence_length)
         else:
@@ -169,7 +170,7 @@ class NERTask(Task):
                 word_ids = list(chain(*[[None, *w] for w in word_ids]))[1:]
                 word_ids = [None, *word_ids, None]
 
-                if len(word_ids) > (tokenizer.max_sequence_length - 20): # 20 is arbitrary, want to prevent bugs
+                if len(word_ids) > (tokenizer.max_sequence_length - 20):  # 20 is arbitrary, want to prevent bugs
                     skipped_labels.append(word_ids)
                     continue
 
