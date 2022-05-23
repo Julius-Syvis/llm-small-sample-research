@@ -179,7 +179,7 @@ class NERTask(Task):
             aligned_labels = self._align_labels_with_tokens(labels, word_ids)
             new_labels.append(aligned_labels)
 
-        if len(skipped_labels > 0):
+        if len(skipped_labels) > 0:
             logging.info(f"During NER tokenization, skipped {len(skipped_labels)} labels.")
 
         tokenized_inputs["labels"] = new_labels
